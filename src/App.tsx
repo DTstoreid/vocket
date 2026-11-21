@@ -27,6 +27,7 @@ import { AudioFlashcardSheet } from './components/AudioFlashcardSheet';
 import { QuizModal } from './components/QuizModal';
 import { PronunciationSheet } from './components/PronunciationSheet';
 import { SyncSheet } from './components/SyncSheet';
+import { HomeScreenSkeleton, QuizLoadingOverlay } from './components/LoadingSkeletons';
 import { HomeScreen } from './screens/HomeScreen';
 import { SpeakScreen } from './screens/SpeakScreen';
 import { GameScreen } from './screens/GameScreen';
@@ -44,6 +45,8 @@ export function App() {
   const [accent, setAccent] = useState<Accent>('us');
   const [summary, setSummary] = useState<DailyProgressSummary | null>(null);
   const [allAssigned, setAllAssigned] = useState<AssignedWordWithDetails[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [quizLoadingLabel, setQuizLoadingLabel] = useState<string | null>(null);
 
   const [audioOpen, setAudioOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
@@ -61,13 +64,18 @@ export function App() {
     questions: []
   });
 
-  const refreshData = useCallback(async () => {
-    const [daily, all] = await Promise.all([
-      ensureDailyTaskAndGetSummary(),
-      getAllAssignedWithDetails()
-    ]);
-    setSummary(daily);
-    setAllAssigned(all);
+  const refreshData = useCallback(async (showSkeleton = false) => {
+    if (showSkeleton) setRefreshing(true);
+    try {
+      const [daily, all] = await Promise.all([
+        ensureDailyTaskAndGetSummary(),
+        getAllAssignedWithDetails()
+      ]);
+      setSummary(daily);
+      setAllAssigned(all);
+    } finally {
+      if (showSkeleton) setRefreshing(false);
+    }
   }, []);
 
   const bootstrap = useCallback(
@@ -87,7 +95,7 @@ export function App() {
           await loadDatasetIntoDexie((p) => setLoadProgress(p));
         }
 
-        await refreshData();
+        await refreshData(false);
         setNeedsDatasetInit(false);
         setReady(true);
       } catch (err) {
@@ -110,39 +118,54 @@ export function App() {
 
   const startBatchQuiz = async () => {
     if (!summary) return;
-    const questions = await generateBatchQuiz(summary.batchWords);
-    if (questions.length === 0) return;
-    setQuizState({
-      open: true,
-      type: 'BATCH',
-      batchNumber: summary.batchNumber,
-      questions
-    });
+    setQuizLoadingLabel('Menyiapkan kuis batch...');
+    try {
+      const questions = await generateBatchQuiz(summary.batchWords);
+      if (questions.length === 0) return;
+      setQuizState({
+        open: true,
+        type: 'BATCH',
+        batchNumber: summary.batchNumber,
+        questions
+      });
+    } finally {
+      setQuizLoadingLabel(null);
+    }
   };
 
   const startRemedialQuiz = async () => {
     if (!summary) return;
-    const questions = await generateRemedialQuiz();
-    if (questions.length === 0) return;
-    setQuizState({
-      open: true,
-      type: 'REMEDIAL',
-      batchNumber: summary.batchNumber,
-      questions
-    });
+    setQuizLoadingLabel('Menyiapkan kuis remedial...');
+    try {
+      const questions = await generateRemedialQuiz();
+      if (questions.length === 0) return;
+      setQuizState({
+        open: true,
+        type: 'REMEDIAL',
+        batchNumber: summary.batchNumber,
+        questions
+      });
+    } finally {
+      setQuizLoadingLabel(null);
+    }
   };
 
   const startCumulativeQuiz = async () => {
     if (!summary) return;
-    const targetBatch = summary.pendingCumulativeBatch || summary.batchNumber;
-    const questions = await generateCumulativeQuiz(targetBatch, 25);
-    if (questions.length === 0) return;
-    setQuizState({
-      open: true,
-      type: 'CUMULATIVE',
-      batchNumber: targetBatch,
-      questions
-    });
+    setQuizLoadingLabel('Menyiapkan cumulative review...');
+    try {
+      const targetBatch = summary.pendingCumulativeBatch || summary.batchNumber;
+      const questions = await generateCumulativeQuiz(targetBatch, 25);
+      if (questions.length === 0) return;
+      setQuizState({
+        open: true,
+        type: 'CUMULATIVE',
+        batchNumber: targetBatch,
+        questions
+      });
+    } finally {
+      setQuizLoadingLabel(null);
+    }
   };
 
   const handleQuizComplete = async (details: QuizDetailItem[]) => {
@@ -151,7 +174,7 @@ export function App() {
       quizType: quizState.type,
       details
     });
-    await refreshData();
+    await refreshData(false);
   };
 
   if (needsDatasetInit && (!ready || loadError)) {
@@ -172,137 +195,150 @@ export function App() {
         <SplashScreen ready={ready && Boolean(summary)} onDone={() => setShowSplash(false)} />
       )}
 
-      {ready && summary && (
-        <div
-          className={`min-h-dvh flex justify-center transition-colors duration-300 ${
-            isDash ? 'bg-[#081A17]' : 'bg-[#ECEAE3]'
-          }`}
-        >
-          <div
-            className={`w-full max-w-[430px] min-h-dvh shadow-sm flex flex-col transition-colors duration-300 ${
-              isDash
-                ? 'bg-gradient-to-b from-[#0E2B26] via-[#10352F] to-[#0B221E] sm:border-x border-white/10'
-                : 'bg-[#F6F5F1] sm:border-x border-[#E6E4DD]'
-            }`}
-          >
-            {/* Clean Minimal Sticky Header */}
-            <header
-              className={`sticky top-0 z-20 h-14 px-4 backdrop-blur-xl flex items-center justify-between transition-colors ${
-                isDash ? 'bg-[#0E2B26]/80' : 'bg-[#F6F5F1]/90'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-xl bg-teal-600 flex items-center justify-center shadow-sm">
-                  <span className="text-sm font-extrabold text-white tracking-tight">v</span>
-                </div>
-                <span
-                  className={`text-[17px] font-extrabold tracking-tight ${
-                    isDash ? 'text-[#F6F5F1]' : 'text-[#18221F]'
-                  }`}
-                >
-                  vocket
-                </span>
-              </div>
+      {quizLoadingLabel && <QuizLoadingOverlay label={quizLoadingLabel} />}
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleAccentChange(accent === 'us' ? 'uk' : 'us')}
-                  className={`h-8 px-3 rounded-full font-mono text-[11px] font-semibold uppercase active:scale-95 transition ${
-                    isDash
-                      ? 'bg-white/10 border border-white/15 text-teal-50'
-                      : 'bg-white border border-[#E6E4DD] text-[#273430] shadow-card'
-                  }`}
-                >
-                  {accent}
-                </button>
-                <button
-                  onClick={() => setSyncOpen(true)}
-                  aria-label="Sync"
-                  className={`h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition ${
-                    isDash
-                      ? 'bg-white/10 border border-white/15 text-teal-50'
-                      : 'bg-white border border-[#E6E4DD] text-[#18221F] shadow-card'
-                  }`}
-                >
-                  <Cloud className={`h-3.5 w-3.5 ${isDash ? 'text-teal-300' : 'text-teal-700'}`} />
-                  Sync
-                </button>
-              </div>
-            </header>
-
-            {/* Main Scroll Content */}
-            <main className="flex-1 px-4 pt-2">
-              {activeTab === 'today' && (
-                <HomeScreen
-                  summary={summary}
-                  accent={accent}
-                  onStartBatchQuiz={startBatchQuiz}
-                  onStartRemedialQuiz={startRemedialQuiz}
-                  onStartCumulativeQuiz={startCumulativeQuiz}
-                  onPracticeSpeak={(item) => setPracticeItem(item)}
-                />
-              )}
-
-              {activeTab === 'speak' && (
-                <SpeakScreen
-                  items={allAssigned}
-                  accent={accent}
-                  onSelectWord={(item) => setPracticeItem(item)}
-                />
-              )}
-
-              {activeTab === 'game' && <GameScreen />}
-
-              {activeTab === 'dict' && <DictScreen accent={accent} />}
-
-              {activeTab === 'dash' && <DashboardScreen />}
-            </main>
-
-            {/* Flying Pill Navigation + Audio FAB */}
-            <BottomNav
-              active={activeTab}
-              onChange={setActiveTab}
-              remedialCount={summary.remedialCount}
-              showAudioFab={activeTab === 'today'}
-              onOpenAudio={() => setAudioOpen(true)}
-              darkSurface={isDash}
-            />
-
-            {/* Sheets & Modals */}
-            <AudioFlashcardSheet
-              open={audioOpen}
-              onClose={() => setAudioOpen(false)}
-              todayWords={summary.todayWords}
-              batchWords={summary.batchWords}
-              accent={accent}
-            />
-
-            <PronunciationSheet
-              item={practiceItem}
-              accent={accent}
-              onClose={() => setPracticeItem(null)}
-              onUpdated={refreshData}
-            />
-
-            <SyncSheet
-              open={syncOpen}
-              onClose={() => setSyncOpen(false)}
-              accent={accent}
-              onAccentChange={handleAccentChange}
-              onReloadDataset={() => bootstrap(true)}
-              onSynced={refreshData}
-            />
-
-            <QuizModal
-              open={quizState.open}
-              quizType={quizState.type}
-              batchNumber={quizState.batchNumber}
-              questions={quizState.questions}
-              onClose={() => setQuizState((s) => ({ ...s, open: false }))}
-              onComplete={handleQuizComplete}
-            />
+      {!showSplash && (!ready || !summary) ? (
+        <div className="min-h-dvh flex justify-center bg-[#ECEAE3]">
+          <div className="w-full max-w-[430px] min-h-dvh bg-[#F6F5F1] sm:border-x border-[#E6E4DD] px-4 pt-16">
+            <HomeScreenSkeleton />
           </div>
         </div>
+      ) : (
+        ready &&
+        summary && (
+          <div
+            className={`min-h-dvh flex justify-center transition-colors duration-300 ${
+              isDash ? 'bg-[#081A17]' : 'bg-[#ECEAE3]'
+            }`}
+          >
+            <div
+              className={`w-full max-w-[430px] min-h-dvh shadow-sm flex flex-col transition-colors duration-300 ${
+                isDash
+                  ? 'bg-gradient-to-b from-[#0E2B26] via-[#10352F] to-[#0B221E] sm:border-x border-white/10'
+                  : 'bg-[#F6F5F1] sm:border-x border-[#E6E4DD]'
+              }`}
+            >
+              {/* Clean Minimal Sticky Header */}
+              <header
+                className={`sticky top-0 z-20 h-14 px-4 backdrop-blur-xl flex items-center justify-between transition-colors ${
+                  isDash ? 'bg-[#0E2B26]/80' : 'bg-[#F6F5F1]/90'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-xl bg-teal-600 flex items-center justify-center shadow-sm">
+                    <span className="text-sm font-extrabold text-white tracking-tight">v</span>
+                  </div>
+                  <span
+                    className={`text-[17px] font-extrabold tracking-tight ${
+                      isDash ? 'text-[#F6F5F1]' : 'text-[#18221F]'
+                    }`}
+                  >
+                    vocket
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleAccentChange(accent === 'us' ? 'uk' : 'us')}
+                    className={`h-8 px-3 rounded-full font-mono text-[11px] font-semibold uppercase active:scale-95 transition ${
+                      isDash
+                        ? 'bg-white/10 border border-white/15 text-teal-50'
+                        : 'bg-white border border-[#E6E4DD] text-[#273430] shadow-card'
+                    }`}
+                  >
+                    {accent}
+                  </button>
+                  <button
+                    onClick={() => setSyncOpen(true)}
+                    aria-label="Sync"
+                    className={`h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition ${
+                      isDash
+                        ? 'bg-white/10 border border-white/15 text-teal-50'
+                        : 'bg-white border border-[#E6E4DD] text-[#18221F] shadow-card'
+                    }`}
+                  >
+                    <Cloud className={`h-3.5 w-3.5 ${isDash ? 'text-teal-300' : 'text-teal-700'}`} />
+                    Sync
+                  </button>
+                </div>
+              </header>
+
+              {/* Main Scroll Content */}
+              <main className="flex-1 px-4 pt-2">
+                {activeTab === 'today' && (
+                  <HomeScreen
+                    summary={summary}
+                    accent={accent}
+                    loading={refreshing}
+                    onStartBatchQuiz={startBatchQuiz}
+                    onStartRemedialQuiz={startRemedialQuiz}
+                    onStartCumulativeQuiz={startCumulativeQuiz}
+                    onPracticeSpeak={(item) => setPracticeItem(item)}
+                  />
+                )}
+
+                {activeTab === 'speak' && (
+                  <SpeakScreen
+                    items={allAssigned}
+                    accent={accent}
+                    loading={refreshing}
+                    onSelectWord={(item) => setPracticeItem(item)}
+                  />
+                )}
+
+                {activeTab === 'game' && <GameScreen />}
+
+                {activeTab === 'dict' && <DictScreen accent={accent} />}
+
+                {activeTab === 'dash' && <DashboardScreen />}
+              </main>
+
+              {/* Flying Pill Navigation + Audio FAB */}
+              <BottomNav
+                active={activeTab}
+                onChange={setActiveTab}
+                remedialCount={summary.remedialCount}
+                showAudioFab={activeTab === 'today'}
+                onOpenAudio={() => setAudioOpen(true)}
+                darkSurface={isDash}
+              />
+
+              {/* Sheets & Modals */}
+              <AudioFlashcardSheet
+                open={audioOpen}
+                onClose={() => setAudioOpen(false)}
+                todayWords={summary.todayWords}
+                batchWords={summary.batchWords}
+                accent={accent}
+              />
+
+              <PronunciationSheet
+                item={practiceItem}
+                accent={accent}
+                onClose={() => setPracticeItem(null)}
+                onUpdated={() => refreshData(false)}
+              />
+
+              <SyncSheet
+                open={syncOpen}
+                onClose={() => setSyncOpen(false)}
+                accent={accent}
+                onAccentChange={handleAccentChange}
+                onReloadDataset={() => bootstrap(true)}
+                onSynced={() => refreshData(true)}
+              />
+
+              <QuizModal
+                open={quizState.open}
+                quizType={quizState.type}
+                batchNumber={quizState.batchNumber}
+                questions={quizState.questions}
+                onClose={() => setQuizState((s) => ({ ...s, open: false }))}
+                onComplete={handleQuizComplete}
+              />
+            </div>
+          </div>
+        )
       )}
     </>
   );
