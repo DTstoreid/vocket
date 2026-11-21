@@ -1,3 +1,5 @@
+import { stopAllSpeech } from './ttsService';
+
 export interface PronunciationEvaluation {
   score: number;
   heard: string;
@@ -11,6 +13,7 @@ interface SpeechRecognitionAlternativeLike {
 }
 
 interface SpeechRecognitionResultLike {
+  isFinal?: boolean;
   length: number;
   [index: number]: SpeechRecognitionAlternativeLike;
 }
@@ -31,6 +34,7 @@ interface SpeechRecognitionInstance {
   interimResults: boolean;
   maxAlternatives: number;
   continuous: boolean;
+  onstart: (() => void) | null;
   onresult: ((e: SpeechRecognitionEventLike) => void) | null;
   onerror: ((e: SpeechRecognitionErrorEventLike) => void) | null;
   onend: (() => void) | null;
@@ -38,6 +42,8 @@ interface SpeechRecognitionInstance {
   stop: () => void;
   abort: () => void;
 }
+
+let activeRecognition: SpeechRecognitionInstance | null = null;
 
 function getSpeechRecognitionConstructor(): (new () => SpeechRecognitionInstance) | null {
   if (typeof window === 'undefined') return null;
@@ -59,9 +65,6 @@ function normalizeToken(input: string): string {
     .trim();
 }
 
-/**
- * Dice's Coefficient (Bigram String Similarity) 0..1
- */
 export function diceCoefficient(a: string, b: string): number {
   const s1 = normalizeToken(a).replace(/\s+/g, '');
   const s2 = normalizeToken(b).replace(/\s+/g, '');
@@ -92,12 +95,6 @@ export function diceCoefficient(a: string, b: string): number {
   return (2 * intersection) / (s1.length - 1 + (s2.length - 1));
 }
 
-/**
- * Algoritma Penilaian Pelafalan 0-100 sesuai spesifikasi:
- * - Exact Match (tebakan utama): clamp(round(confidence * 100), 85, 100) atau 90 jika confidence <= 0
- * - Alternative Match (urutan 2 atau 3+): 75 atau 70
- * - Partial Similarity: round(diceSimilarity * 70)
- */
 export function scorePronunciation(
   targetWord: string,
   candidates: Array<{ transcript: string; confidence: number }>
@@ -118,7 +115,6 @@ export function scorePronunciation(
   const first = cleaned[0];
   const alternatives = cleaned.map((c) => c.raw);
 
-  // Cek exact match di tebakan utama (atau sebagai salah satu kata di frase)
   const firstWords = first.norm.split(/\s+/);
   if (first.norm === target || firstWords.includes(target)) {
     const rawScore = first.confidence > 0 ? Math.round(first.confidence * 100) : 90;
@@ -131,7 +127,6 @@ export function scorePronunciation(
     };
   }
 
-  // Cek alternative match (urutan 2 -> 75, urutan 3+ -> 70)
   for (let i = 1; i < cleaned.length; i++) {
     const words = cleaned[i].norm.split(/\s+/);
     if (cleaned[i].norm === target || words.includes(target)) {
@@ -144,7 +139,6 @@ export function scorePronunciation(
     }
   }
 
-  // Partial Similarity menggunakan Dice's Coefficient
   const similarity = diceCoefficient(target, first.norm);
   const simScore = Math.max(0, Math.min(70, Math.round(similarity * 70)));
 
@@ -156,7 +150,10 @@ export function scorePronunciation(
   };
 }
 
-export function listenAndScorePronunciation(targetWord: string): {
+export function listenAndScorePronunciation(
+  targetWord: string,
+  onInterim?: (text: string) => void
+): {
   promise: Promise<PronunciationEvaluation>;
   stop: () => void;
 } {
@@ -168,19 +165,42 @@ export function listenAndScorePronunciation(targetWord: string): {
     };
   }
 
+  // Hentikan TTS/audio & sesi recognition lama agar audio focus di Android dilepas
+  stopAllSpeech();
+  if (activeRecognition) {
+    try {
+      activeRecognition.abort();
+    } catch {
+      // ignore
+    }
+    activeRecognition = null;
+  }
+
   const recognition = new Ctor();
+  activeRecognition = recognition;
   recognition.lang = 'en-US';
-  recognition.interimResults = false;
+  recognition.interimResults = true;
   recognition.maxAlternatives = 5;
   recognition.continuous = false;
+
+  let userStopped = false;
+  let lastCandidates: Array<{ transcript: string; confidence: number }> = [];
 
   const promise = new Promise<PronunciationEvaluation>((resolve, reject) => {
     let settled = false;
 
+    const cleanup = () => {
+      if (activeRecognition === recognition) {
+        activeRecognition = null;
+      }
+    };
+
     recognition.onresult = (event) => {
       if (settled) return;
-      settled = true;
-      const result = event.results[0];
+      const idx = event.results.length - 1;
+      const result = event.results[idx];
+      if (!result) return;
+
       const candidates: Array<{ transcript: string; confidence: number }> = [];
       for (let i = 0; i < result.length; i++) {
         candidates.push({
@@ -188,25 +208,55 @@ export function listenAndScorePronunciation(targetWord: string): {
           confidence: result[i].confidence
         });
       }
-      resolve(scorePronunciation(targetWord, candidates));
+      lastCandidates = candidates;
+
+      if (candidates[0]?.transcript) {
+        onInterim?.(candidates[0].transcript);
+      }
+
+      if (result.isFinal) {
+        settled = true;
+        cleanup();
+        resolve(scorePronunciation(targetWord, candidates));
+      }
     };
 
     recognition.onerror = (event) => {
       if (settled) return;
       settled = true;
+      cleanup();
+
       if (event.error === 'no-speech') {
         reject(new Error('Suara tidak terdeteksi. Coba ucapkan lebih dekat ke mikrofon.'));
-      } else if (event.error === 'not-allowed') {
-        reject(new Error('Izin mikrofon ditolak. Aktifkan izin mikrofon di browser.'));
+      } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        reject(new Error('Izin mikrofon ditolak. Aktifkan izin mikrofon di pengaturan browser.'));
+      } else if (event.error === 'audio-capture') {
+        reject(new Error('Mikrofon sedang dipakai aplikasi lain atau tidak tersedia.'));
+      } else if (event.error === 'network') {
+        reject(new Error('Pengenalan suara butuh koneksi internet di browser ini.'));
+      } else if (event.error === 'aborted') {
+        if (userStopped && lastCandidates.length > 0) {
+          resolve(scorePronunciation(targetWord, lastCandidates));
+          return;
+        }
+        reject(
+          new Error(
+            'Rekaman dibatalkan sistem (aborted). Pastikan izin Mikrofon aktif, layanan Google Speech tidak diblokir, dan buka lewat Chrome/Safari.'
+          )
+        );
       } else {
         reject(new Error(`Gagal mengenali suara (${event.error}).`));
       }
     };
 
     recognition.onend = () => {
-      if (!settled) {
-        settled = true;
-        reject(new Error('Rekaman selesai tanpa hasil suara.'));
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (lastCandidates.length > 0) {
+        resolve(scorePronunciation(targetWord, lastCandidates));
+      } else {
+        reject(new Error('Rekaman selesai tanpa hasil suara. Coba ucapkan setelah menekan Bicara.'));
       }
     };
 
@@ -214,6 +264,7 @@ export function listenAndScorePronunciation(targetWord: string): {
       recognition.start();
     } catch (err) {
       settled = true;
+      cleanup();
       reject(err instanceof Error ? err : new Error('Gagal memulai mikrofon.'));
     }
   });
@@ -221,6 +272,7 @@ export function listenAndScorePronunciation(targetWord: string): {
   return {
     promise,
     stop: () => {
+      userStopped = true;
       try {
         recognition.stop();
       } catch {
