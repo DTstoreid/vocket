@@ -44,39 +44,39 @@ export function SpeakScreen({ items, accent, onSelectWord }: Props) {
   }, [items, filter]);
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-4 pb-28">
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-white border border-slate-200/80 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className="rounded-[22px] bg-white border border-[#E6E4DD] p-4 shadow-card">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#7B8681]">
             Rata-rata
           </p>
-          <p className="mt-1 font-mono text-2xl font-bold text-slate-900">
+          <p className="mt-1.5 font-mono text-2xl font-bold text-[#18221F]">
             {stats.avg}
-            <span className="text-xs font-normal text-slate-400"> / 100</span>
+            <span className="text-xs font-normal text-[#7B8681]"> / 100</span>
           </p>
         </div>
-        <div className="rounded-2xl bg-white border border-slate-200/80 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className="rounded-[22px] bg-white border border-[#E6E4DD] p-4 shadow-card">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#7B8681]">
             Fasih (80+)
           </p>
-          <p className="mt-1 font-mono text-2xl font-bold text-emerald-600">
+          <p className="mt-1.5 font-mono text-2xl font-bold text-teal-700">
             {stats.fluent}
-            <span className="text-xs font-normal text-slate-400"> / {stats.total}</span>
+            <span className="text-xs font-normal text-[#7B8681]"> / {stats.total}</span>
           </p>
         </div>
       </div>
 
       {/* Filter Chips */}
-      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
         {FILTERS.map((f) => (
           <button
             key={f.id}
             onClick={() => setFilter(f.id)}
-            className={`h-8 px-3.5 rounded-full text-xs font-semibold shrink-0 transition ${
+            className={`h-9 px-4 rounded-full text-xs font-semibold shrink-0 transition active:scale-95 ${
               filter === f.id
-                ? 'bg-slate-900 text-white'
-                : 'bg-white border border-slate-200 text-slate-600'
+                ? 'bg-[#18221F] text-white shadow-sm'
+                : 'bg-white border border-[#E6E4DD] text-[#4E5B56]'
             }`}
           >
             {f.label}
@@ -86,11 +86,11 @@ export function SpeakScreen({ items, accent, onSelectWord }: Props) {
 
       {/* Word List */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl bg-white border border-slate-200/80 p-8 text-center text-xs text-slate-400">
+        <div className="rounded-[22px] bg-white border border-[#E6E4DD] p-8 text-center text-xs font-medium text-[#7B8681]">
           Tidak ada kata pada filter ini.
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {filtered.map((item) => {
             const { word, assigned } = item;
             const ipa = accent === 'uk' ? word.ipaUk || word.ipaUs : word.ipaUs || word.ipaUk;
@@ -100,14 +100,16 @@ export function SpeakScreen({ items, accent, onSelectWord }: Props) {
               <div
                 key={word.id}
                 onClick={() => onSelectWord(item)}
-                className="rounded-2xl bg-white border border-slate-200/80 p-3.5 flex items-center justify-between gap-3 cursor-pointer active:scale-[0.99] transition"
+                className="rounded-[20px] bg-white border border-[#E6E4DD] p-3.5 shadow-card flex items-center justify-between gap-3 cursor-pointer active:scale-[0.99] transition"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-slate-900">{word.id}</span>
-                    {ipa && <span className="font-mono text-[11px] text-slate-400 truncate">{ipa}</span>}
+                    <span className="text-[15px] font-bold text-[#18221F]">{word.id}</span>
+                    {ipa && (
+                      <span className="font-mono text-[11px] text-[#7B8681] truncate">{ipa}</span>
+                    )}
                   </div>
-                  <p className="text-xs text-slate-500 truncate mt-0.5">{word.translationId}</p>
+                  <p className="text-xs text-[#5C6863] truncate mt-0.5">{word.translationId}</p>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
@@ -117,23 +119,23 @@ export function SpeakScreen({ items, accent, onSelectWord }: Props) {
                       speakWord(word, { accent, rate: 1.0, preferNativeAudio: true });
                     }}
                     aria-label="Listen"
-                    className="h-8 w-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 flex items-center justify-center"
+                    className="h-9 w-9 rounded-full bg-[#F6F5F1] border border-[#E6E4DD] text-[#273430] flex items-center justify-center active:scale-90 transition"
                   >
                     <Volume2 className="h-3.5 w-3.5" />
                   </button>
 
                   {assigned.pronunciationAttempts > 0 ? (
                     <span
-                      className={`h-8 min-w-10 px-2 rounded-lg font-mono text-xs font-bold flex items-center justify-center ${
+                      className={`h-9 min-w-11 px-2.5 rounded-full font-mono text-xs font-bold flex items-center justify-center ${
                         score >= 80
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
+                          : 'bg-amber-50 text-amber-800 border border-amber-200/80'
                       }`}
                     >
                       {score}
                     </span>
                   ) : (
-                    <span className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <span className="h-9 w-9 rounded-full bg-teal-50 border border-teal-200/70 text-teal-700 flex items-center justify-center">
                       <Mic className="h-3.5 w-3.5" />
                     </span>
                   )}
