@@ -9,7 +9,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon-192.svg', 'icons/icon-512.svg'],
       manifest: {
-        name: 'Vocket - Vocab Tracker & Pronunciation',
+        name: 'Vocket V1.7.0',
         short_name: 'vocket',
         description: 'Monitor & track progress belajar kosakata Inggris - Indonesia dengan TTS & Pronunciation Lab.',
         theme_color: '#F6F5F1',
