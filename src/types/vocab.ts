@@ -165,6 +165,8 @@ export interface GameRunRecord {
   totalWords: number;
   pangramsFound: number;
   assignedBonusCount: number;
+  matchCorrect?: number;
+  matchTotal?: number;
   durationSeconds: number;
   playedAt: string;
 }
