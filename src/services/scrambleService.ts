@@ -4,10 +4,12 @@ import { db } from '../db/vocketDb';
 
 export const DEFAULT_ROUND_SECONDS = 90;
 export const MAX_GAME_HISTORY = 5;
+export const MAX_MATCH_WORDS = 7;
 export const MATCH_BONUS_POINTS = 2;
 
 let cachedRounds: ScrambleRound[] | null = null;
 let cachedGlobalScrambleWords: Set<string> | null = null;
+let cachedDerivativeMap: Map<string, WordRecord> | null = null;
 
 export interface MatchWordItem {
   word: string;
@@ -19,6 +21,159 @@ export interface MatchOptionItem {
   id: string;
   translation: string;
 }
+
+const IRREGULAR_LEMMAS: Record<string, string> = {
+  ate: 'eat',
+  began: 'begin',
+  begun: 'begin',
+  bent: 'bend',
+  bit: 'bite',
+  bled: 'bleed',
+  blew: 'blow',
+  bore: 'bear',
+  born: 'bear',
+  bought: 'buy',
+  bound: 'bind',
+  bred: 'breed',
+  broke: 'break',
+  built: 'build',
+  burnt: 'burn',
+  came: 'come',
+  caught: 'catch',
+  chose: 'choose',
+  clung: 'cling',
+  crept: 'creep',
+  dealt: 'deal',
+  did: 'do',
+  done: 'do',
+  drank: 'drink',
+  drawn: 'draw',
+  dreamt: 'dream',
+  drew: 'draw',
+  driven: 'drive',
+  drove: 'drive',
+  drunk: 'drink',
+  dug: 'dig',
+  eaten: 'eat',
+  fallen: 'fall',
+  fed: 'feed',
+  feet: 'foot',
+  fell: 'fall',
+  felt: 'feel',
+  fled: 'flee',
+  flew: 'fly',
+  flown: 'fly',
+  fought: 'fight',
+  found: 'find',
+  froze: 'freeze',
+  gave: 'give',
+  geese: 'goose',
+  given: 'give',
+  gone: 'go',
+  got: 'get',
+  gotten: 'get',
+  grew: 'grow',
+  grown: 'grow',
+  had: 'have',
+  halves: 'half',
+  has: 'have',
+  heard: 'hear',
+  held: 'hold',
+  hid: 'hide',
+  hidden: 'hide',
+  hung: 'hang',
+  kept: 'keep',
+  knelt: 'kneel',
+  knew: 'know',
+  knives: 'knife',
+  known: 'know',
+  laid: 'lay',
+  lain: 'lie',
+  leapt: 'leap',
+  learnt: 'learn',
+  leaves: 'leaf',
+  led: 'lead',
+  left: 'leave',
+  lent: 'lend',
+  lit: 'light',
+  lives: 'life',
+  loaves: 'loaf',
+  lost: 'lose',
+  made: 'make',
+  meant: 'mean',
+  men: 'man',
+  met: 'meet',
+  mice: 'mouse',
+  paid: 'pay',
+  ran: 'run',
+  rang: 'ring',
+  ridden: 'ride',
+  risen: 'rise',
+  rode: 'ride',
+  rose: 'rise',
+  rung: 'ring',
+  said: 'say',
+  sang: 'sing',
+  sank: 'sink',
+  sat: 'sit',
+  saw: 'see',
+  seen: 'see',
+  sent: 'send',
+  shaken: 'shake',
+  shone: 'shine',
+  shook: 'shake',
+  shot: 'shoot',
+  shown: 'show',
+  slid: 'slide',
+  slept: 'sleep',
+  sold: 'sell',
+  sought: 'seek',
+  sped: 'speed',
+  spent: 'spend',
+  spoke: 'speak',
+  spoken: 'speak',
+  spun: 'spin',
+  stole: 'steal',
+  stolen: 'steal',
+  stood: 'stand',
+  struck: 'strike',
+  stuck: 'stick',
+  stung: 'sting',
+  sung: 'sing',
+  sunk: 'sink',
+  swam: 'swim',
+  swept: 'sweep',
+  swore: 'swear',
+  sworn: 'swear',
+  swum: 'swim',
+  swung: 'swing',
+  taken: 'take',
+  taught: 'teach',
+  teeth: 'tooth',
+  threw: 'throw',
+  thrown: 'throw',
+  told: 'tell',
+  took: 'take',
+  tore: 'tear',
+  torn: 'tear',
+  was: 'be',
+  went: 'go',
+  wept: 'weep',
+  were: 'be',
+  wives: 'wife',
+  woke: 'wake',
+  woken: 'wake',
+  wolves: 'wolf',
+  women: 'woman',
+  won: 'win',
+  wore: 'wear',
+  worn: 'wear',
+  worse: 'bad',
+  worst: 'bad',
+  better: 'good',
+  best: 'good',
+  wrote: 'write'
+};
 
 function formatShortTranslation(record: WordRecord): string {
   const raw = record.translationId || record.acceptId?.[0] || '';
@@ -33,27 +188,78 @@ function formatShortTranslation(record: WordRecord): string {
 function getStemCandidates(word: string): string[] {
   const w = word.toLowerCase();
   const cands = new Set<string>();
+
+  if (IRREGULAR_LEMMAS[w]) {
+    cands.add(IRREGULAR_LEMMAS[w]);
+  }
+
   if (w.endsWith('ies') && w.length > 4) cands.add(`${w.slice(0, -3)}y`);
-  if (w.endsWith('es') && w.length > 3) cands.add(w.slice(0, -2));
+  if (w.endsWith('ves') && w.length > 4) {
+    cands.add(`${w.slice(0, -3)}f`);
+    cands.add(`${w.slice(0, -3)}fe`);
+  }
+  if (w.endsWith('es') && w.length > 3) {
+    cands.add(w.slice(0, -2));
+    cands.add(w.slice(0, -1));
+  }
   if (w.endsWith('s') && w.length > 3) cands.add(w.slice(0, -1));
+
   if (w.endsWith('ied') && w.length > 4) cands.add(`${w.slice(0, -3)}y`);
   if (w.endsWith('ed') && w.length > 4) {
-    cands.add(w.slice(0, -2));
+    const base = w.slice(0, -2);
+    cands.add(base);
     cands.add(w.slice(0, -1));
+    if (base.length >= 3 && base[base.length - 1] === base[base.length - 2]) {
+      cands.add(base.slice(0, -1));
+    }
   }
+
   if (w.endsWith('ing') && w.length > 5) {
-    cands.add(w.slice(0, -3));
-    cands.add(`${w.slice(0, -3)}e`);
+    const base = w.slice(0, -3);
+    cands.add(base);
+    cands.add(`${base}e`);
+    if (base.length >= 3 && base[base.length - 1] === base[base.length - 2]) {
+      cands.add(base.slice(0, -1));
+    }
   }
+
+  if (w.endsWith('ier') && w.length > 4) cands.add(`${w.slice(0, -3)}y`);
   if (w.endsWith('er') && w.length > 4) {
-    cands.add(w.slice(0, -2));
+    const base = w.slice(0, -2);
+    cands.add(base);
     cands.add(w.slice(0, -1));
+    if (base.length >= 3 && base[base.length - 1] === base[base.length - 2]) {
+      cands.add(base.slice(0, -1));
+    }
   }
+
+  if (w.endsWith('iest') && w.length > 5) cands.add(`${w.slice(0, -4)}y`);
   if (w.endsWith('est') && w.length > 5) {
-    cands.add(w.slice(0, -3));
+    const base = w.slice(0, -3);
+    cands.add(base);
     cands.add(w.slice(0, -2));
+    if (base.length >= 3 && base[base.length - 1] === base[base.length - 2]) {
+      cands.add(base.slice(0, -1));
+    }
   }
+
   return Array.from(cands);
+}
+
+async function getDerivativeMap(): Promise<Map<string, WordRecord>> {
+  if (cachedDerivativeMap) return cachedDerivativeMap;
+  const allWords = await db.words.toArray();
+  const map = new Map<string, WordRecord>();
+  for (const w of allWords) {
+    for (const d of w.derivatives) {
+      const key = d.toLowerCase().trim();
+      if (key && !map.has(key)) {
+        map.set(key, w);
+      }
+    }
+  }
+  cachedDerivativeMap = map;
+  return map;
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -137,7 +343,7 @@ export async function validateScrambleWord(
 
 /**
  * Menyiapkan daftar pasangan kata Inggris -> terjemahan Indonesia
- * dari kata-kata yang berhasil ditemukan pemain pada sesi Susun Kata.
+ * sejumlah kata yang berhasil ditemukan pemain (maksimal 7 kata jika ditemukan >= 7).
  */
 export async function buildTranslationMatchSession(
   foundEntries: Array<{ word: string; points: number }>
@@ -148,39 +354,53 @@ export async function buildTranslationMatchSession(
 
   const lowerWords = foundEntries.map((f) => f.word.toLowerCase());
   const exactRecords = await db.words.bulkGet(lowerWords);
+  let derivMap: Map<string, WordRecord> | null = null;
 
-  const items: MatchWordItem[] = [];
-  const usedTranslations = new Set<string>();
+  const matchedAll: MatchWordItem[] = [];
 
   for (let i = 0; i < foundEntries.length; i++) {
     const entry = foundEntries[i];
+    const clean = entry.word.toLowerCase();
     let record: WordRecord | undefined = exactRecords[i];
 
     if (!record) {
-      const stems = getStemCandidates(entry.word);
+      const stems = getStemCandidates(clean);
       if (stems.length > 0) {
         const stemRecs = await db.words.bulkGet(stems);
         record = stemRecs.find((r): r is WordRecord => Boolean(r));
       }
     }
 
+    if (!record) {
+      if (!derivMap) {
+        derivMap = await getDerivativeMap();
+      }
+      record = derivMap.get(clean);
+    }
+
     if (record) {
       const translation = formatShortTranslation(record);
       if (translation) {
-        items.push({
+        matchedAll.push({
           word: entry.word,
           translation,
           points: entry.points
         });
-        usedTranslations.add(translation.toLowerCase());
       }
     }
   }
 
-  if (items.length === 0) {
+  if (matchedAll.length === 0) {
     return { items: [], options: [] };
   }
 
+  // Jika kata yang ditemukan >= 7, pilih maksimal 7 kata saja secara acak
+  const items =
+    matchedAll.length > MAX_MATCH_WORDS
+      ? shuffle(matchedAll).slice(0, MAX_MATCH_WORDS)
+      : matchedAll;
+
+  const usedTranslations = new Set(items.map((it) => it.translation.toLowerCase()));
   const optionList: MatchOptionItem[] = items.map((item, idx) => ({
     id: `opt_${idx}_${item.word}`,
     translation: item.translation
