@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pause, Play, Repeat, SkipBack, SkipForward, Volume2, X } from 'lucide-react';
 import type { AssignedWordWithDetails } from '../types/vocab';
-import { delayMs, speakText, stopAllSpeech, type Accent, type FlashcardStep } from '../services/ttsService';
+import {
+  delayMs,
+  speakText,
+  speakWord,
+  stopAllSpeech,
+  unlockMobileAudio,
+  type Accent,
+  type FlashcardStep
+} from '../services/ttsService';
 
 interface Props {
   open: boolean;
@@ -63,9 +71,14 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
         setIndex(i);
         const w = list[i].word;
 
-        // Step 1: Word EN (0.9x)
+        // Step 1: Word EN (audio native dengan fallback TTS)
         setStep('WORD');
-        await speakText(w.id, accent === 'uk' ? 'en-GB' : 'en-US', 0.9);
+        await speakWord(w, {
+          accent,
+          rate: 1.0,
+          preferNativeAudio: true,
+          signal: controller.signal
+        });
         if (controller.signal.aborted) break;
 
         // Step 2: Silent Delay 2.5s
@@ -74,13 +87,18 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
 
         // Step 3: Indonesian Translation
         setStep('TRANSLATION');
-        await speakText(w.translationId, 'id-ID', 0.95);
+        await speakText(w.translationId, 'id-ID', 0.95, controller.signal);
         if (controller.signal.aborted) break;
 
         // Step 4: Example sentence (1.0x)
         if (w.example) {
           setStep('EXAMPLE');
-          await speakText(w.example, accent === 'uk' ? 'en-GB' : 'en-US', 1.0);
+          await speakText(
+            w.example,
+            accent === 'uk' ? 'en-GB' : 'en-US',
+            1.0,
+            controller.signal
+          );
           if (controller.signal.aborted) break;
         }
 
@@ -110,6 +128,15 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
 
   if (!open) return null;
 
+  const handleTogglePlay = () => {
+    if (playing) {
+      stopPlayback();
+    } else {
+      unlockMobileAudio();
+      setPlaying(true);
+    }
+  };
+
   const handleJump = (delta: number) => {
     if (list.length === 0) return;
     const wasPlaying = playing;
@@ -117,7 +144,8 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
     const nextIdx = (index + delta + list.length) % list.length;
     setIndex(nextIdx);
     if (wasPlaying) {
-      window.setTimeout(() => setPlaying(true), 50);
+      unlockMobileAudio();
+      window.setTimeout(() => setPlaying(true), 60);
     }
   };
 
@@ -206,7 +234,7 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
           </button>
 
           <button
-            onClick={() => (playing ? stopPlayback() : setPlaying(true))}
+            onClick={handleTogglePlay}
             disabled={list.length === 0}
             aria-label={playing ? 'Pause' : 'Play'}
             className="h-14 w-14 rounded-full bg-slate-900 text-white flex items-center justify-center shadow-md active:scale-95 transition disabled:opacity-40"
