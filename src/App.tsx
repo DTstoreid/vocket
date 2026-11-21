@@ -297,7 +297,7 @@ export function App() {
               <BottomNav
                 active={activeTab}
                 onChange={setActiveTab}
-                remedialCount={summary.remedialCount}
+                remedialCount={summary.isEvaluationDay ? summary.remedialCount : 0}
                 showAudioFab={activeTab === 'today'}
                 onOpenAudio={() => setAudioOpen(true)}
                 darkSurface={isDash}
