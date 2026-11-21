@@ -71,7 +71,6 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
         setIndex(i);
         const w = list[i].word;
 
-        // Step 1: Word EN (audio native dengan fallback TTS)
         setStep('WORD');
         await speakWord(w, {
           accent,
@@ -81,16 +80,13 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
         });
         if (controller.signal.aborted) break;
 
-        // Step 2: Silent Delay 2.5s
         setStep('PAUSE_THINK');
         if (!(await delayMs(2500, controller.signal))) break;
 
-        // Step 3: Indonesian Translation
         setStep('TRANSLATION');
         await speakText(w.translationId, 'id-ID', 0.95, controller.signal);
         if (controller.signal.aborted) break;
 
-        // Step 4: Example sentence (1.0x)
         if (w.example) {
           setStep('EXAMPLE');
           await speakText(
@@ -102,7 +98,6 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
           if (controller.signal.aborted) break;
         }
 
-        // Step 5: Silent Delay 1.5s
         setStep('PAUSE_NEXT');
         if (!(await delayMs(1500, controller.signal))) break;
 
@@ -150,37 +145,37 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-end justify-center">
-      <div className="w-full max-w-[430px] rounded-t-3xl bg-white p-5 safe-bottom shadow-xl">
+    <div className="fixed inset-0 z-50 bg-[#18221F]/45 backdrop-blur-sm flex items-end justify-center p-2.5">
+      <div className="w-full max-w-[420px] rounded-[30px] bg-white border border-[#E6E4DD] p-5 safe-bottom shadow-float">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Volume2 className="h-4 w-4 text-indigo-600" />
-            <h2 className="text-sm font-semibold text-slate-900">Audio Flashcard</h2>
+            <Volume2 className="h-4 w-4 text-teal-700" />
+            <h2 className="text-sm font-bold text-[#18221F]">Audio Flashcard</h2>
           </div>
           <button
             onClick={() => {
               stopPlayback();
               onClose();
             }}
-            className="h-8 w-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center"
+            className="h-8 w-8 rounded-full bg-[#F6F5F1] text-[#64706B] flex items-center justify-center"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-100 mb-5">
+        <div className="grid grid-cols-2 gap-1 p-1 rounded-full bg-[#ECEAE3] mb-5">
           <button
             onClick={() => setScope('today')}
-            className={`h-8 rounded-lg text-xs font-medium transition ${
-              scope === 'today' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+            className={`h-8 rounded-full text-xs font-semibold transition ${
+              scope === 'today' ? 'bg-white text-[#18221F] shadow-sm' : 'text-[#5C6863]'
             }`}
           >
             Today ({todayWords.length})
           </button>
           <button
             onClick={() => setScope('batch')}
-            className={`h-8 rounded-lg text-xs font-medium transition ${
-              scope === 'batch' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+            className={`h-8 rounded-full text-xs font-semibold transition ${
+              scope === 'batch' ? 'bg-white text-[#18221F] shadow-sm' : 'text-[#5C6863]'
             }`}
           >
             Batch ({batchWords.length})
@@ -188,26 +183,28 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
         </div>
 
         {current ? (
-          <div className="rounded-2xl bg-slate-50 border border-slate-200/80 p-5 text-center mb-5">
-            <div className="flex items-center justify-between text-[11px] text-slate-400 mb-3">
-              <span className="font-mono">
+          <div className="rounded-[24px] bg-[#F6F5F1] border border-[#E6E4DD] p-5 text-center mb-5">
+            <div className="flex items-center justify-between text-[11px] text-[#7B8681] mb-3">
+              <span className="font-mono font-medium">
                 {index + 1} / {list.length}
               </span>
-              <span className="font-medium text-indigo-600">{playing ? STEP_LABEL[step] : 'Siap'}</span>
+              <span className="font-semibold text-teal-700">
+                {playing ? STEP_LABEL[step] : 'Siap'}
+              </span>
             </div>
-            <p className="text-2xl font-bold tracking-tight text-slate-900">{current.id}</p>
+            <p className="text-2xl font-extrabold tracking-tight text-[#18221F]">{current.id}</p>
             {(current.ipaUs || current.ipaUk) && (
-              <p className="mt-1 font-mono text-xs text-slate-400">
+              <p className="mt-1 font-mono text-xs text-[#7B8681]">
                 {accent === 'uk' ? current.ipaUk || current.ipaUs : current.ipaUs || current.ipaUk}
               </p>
             )}
-            <p className="mt-3 text-sm font-medium text-slate-700">{current.translationId}</p>
+            <p className="mt-3 text-sm font-semibold text-[#2A3733]">{current.translationId}</p>
             {current.example && (
-              <p className="mt-2 text-xs italic text-slate-500 line-clamp-2">{current.example}</p>
+              <p className="mt-2 text-xs italic text-[#64706B] line-clamp-2">{current.example}</p>
             )}
           </div>
         ) : (
-          <div className="rounded-2xl bg-slate-50 p-6 text-center text-xs text-slate-500 mb-5">
+          <div className="rounded-[24px] bg-[#F6F5F1] p-6 text-center text-xs text-[#7B8681] mb-5">
             Belum ada kata di daftar ini.
           </div>
         )}
@@ -218,8 +215,8 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
             aria-label="Repeat"
             className={`h-10 w-10 rounded-full border flex items-center justify-center transition ${
               repeat
-                ? 'border-indigo-200 bg-indigo-50 text-indigo-600'
-                : 'border-slate-200 bg-white text-slate-400'
+                ? 'border-teal-200 bg-teal-50 text-teal-700'
+                : 'border-[#E6E4DD] bg-white text-[#8A948F]'
             }`}
           >
             <Repeat className="h-4 w-4" />
@@ -228,7 +225,7 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
           <button
             onClick={() => handleJump(-1)}
             aria-label="Prev"
-            className="h-11 w-11 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center active:scale-95 transition"
+            className="h-11 w-11 rounded-full bg-[#F6F5F1] border border-[#E6E4DD] text-[#18221F] flex items-center justify-center active:scale-90 transition"
           >
             <SkipBack className="h-4 w-4" />
           </button>
@@ -237,7 +234,7 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
             onClick={handleTogglePlay}
             disabled={list.length === 0}
             aria-label={playing ? 'Pause' : 'Play'}
-            className="h-14 w-14 rounded-full bg-slate-900 text-white flex items-center justify-center shadow-md active:scale-95 transition disabled:opacity-40"
+            className="h-14 w-14 rounded-full bg-teal-700 hover:bg-teal-800 text-white flex items-center justify-center shadow-fab active:scale-90 transition disabled:opacity-40"
           >
             {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 ml-0.5" />}
           </button>
@@ -245,7 +242,7 @@ export function AudioFlashcardSheet({ open, onClose, todayWords, batchWords, acc
           <button
             onClick={() => handleJump(1)}
             aria-label="Next"
-            className="h-11 w-11 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center active:scale-95 transition"
+            className="h-11 w-11 rounded-full bg-[#F6F5F1] border border-[#E6E4DD] text-[#18221F] flex items-center justify-center active:scale-90 transition"
           >
             <SkipForward className="h-4 w-4" />
           </button>
