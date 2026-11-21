@@ -1,5 +1,6 @@
 import { Database, RefreshCw } from 'lucide-react';
 import type { LoadProgress } from '../db/datasetLoader';
+import { LoadingDots } from './LoadingSkeletons';
 
 interface Props {
   progress: LoadProgress | null;
@@ -17,8 +18,13 @@ export function DatasetInitScreen({ progress, error, onRetry }: Props) {
     <div className="min-h-dvh flex items-center justify-center bg-[#F6F5F1] p-5">
       <div className="w-full max-w-sm rounded-[28px] bg-white p-7 shadow-float border border-[#E6E4DD]">
         <div className="flex items-center gap-3.5 mb-6">
-          <div className="h-12 w-12 rounded-2xl bg-teal-700 text-white flex items-center justify-center shadow-sm">
-            <Database className="h-5 w-5" />
+          <div className="relative">
+            {!error && (
+              <span className="vocket-pulse-ring absolute inset-0 rounded-2xl bg-teal-600/30" />
+            )}
+            <div className="relative h-12 w-12 rounded-2xl bg-teal-700 text-white flex items-center justify-center shadow-sm">
+              <Database className="h-5 w-5" />
+            </div>
           </div>
           <div>
             <h1 className="text-xl font-extrabold tracking-tight text-[#18221F]">vocket</h1>
@@ -42,18 +48,25 @@ export function DatasetInitScreen({ progress, error, onRetry }: Props) {
         ) : (
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs text-[#4E5B56]">
-              <span className="font-medium">
+              <span className="font-medium inline-flex items-center gap-2">
                 {progress?.stage === 'indexing'
-                  ? 'Mengindeks ke IndexedDB...'
-                  : 'Mengunduh dataset...'}
+                  ? 'Mengindeks ke IndexedDB'
+                  : 'Mengunduh dataset'}
+                <LoadingDots className="bg-teal-700" />
               </span>
               <span className="font-mono font-semibold text-teal-700">{pct}%</span>
             </div>
-            <div className="h-2 w-full rounded-full bg-[#ECEAE3] overflow-hidden">
-              <div
-                className="h-full rounded-full bg-teal-700 transition-all duration-200"
-                style={{ width: `${pct}%` }}
-              />
+            <div
+              className={`h-2.5 w-full rounded-full bg-[#ECEAE3] overflow-hidden ${
+                pct === 0 ? 'vocket-bar-indeterminate' : ''
+              }`}
+            >
+              {pct > 0 && (
+                <div
+                  className="vocket-bar-sheen h-full rounded-full bg-teal-700 transition-all duration-300"
+                  style={{ width: `${pct}%` }}
+                />
+              )}
             </div>
             <p className="text-[11px] font-medium text-[#7B8681]">
               {progress

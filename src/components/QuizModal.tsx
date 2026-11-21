@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRight, Check, RotateCcw, X } from 'lucide-react';
+import { ArrowRight, Check, Loader2, RotateCcw, X } from 'lucide-react';
 import type { QuizDetailItem, QuizQuestion, QuizQuestionType, QuizType } from '../types/vocab';
 
 interface Props {
@@ -43,7 +43,7 @@ export function QuizModal({ open, quizType, batchNumber, questions, onClose, onC
   };
 
   const handleNext = async () => {
-    if (selected === null) return;
+    if (selected === null || saving) return;
     const nextDetails: QuizDetailItem[] = [
       ...details,
       {
@@ -85,7 +85,7 @@ export function QuizModal({ open, quizType, batchNumber, questions, onClose, onC
 
     return (
       <div className="fixed inset-0 z-50 bg-[#ECEAE3] flex justify-center">
-        <div className="w-full max-w-[430px] h-dvh flex flex-col bg-[#F6F5F1]">
+        <div className="w-full max-w-[430px] h-dvh flex flex-col bg-[#F6F5F1] vocket-content-enter">
           <div className="flex items-center justify-between px-4 h-14 border-b border-[#E6E4DD] bg-[#F6F5F1]">
             <span className="text-sm font-bold text-[#18221F]">
               {TITLE_MAP[quizType]} #{batchNumber}
@@ -227,8 +227,17 @@ export function QuizModal({ open, quizType, batchNumber, questions, onClose, onC
             disabled={selected === null || saving}
             className="w-full h-12 rounded-full bg-teal-700 hover:bg-teal-800 text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-35 active:scale-[0.98] transition"
           >
-            {idx + 1 < questions.length ? 'Next' : 'Finish'}
-            <ArrowRight className="h-4 w-4" />
+            {saving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Menyimpan...
+              </>
+            ) : (
+              <>
+                {idx + 1 < questions.length ? 'Next' : 'Finish'}
+                <ArrowRight className="h-4 w-4" />
+              </>
+            )}
           </button>
         </div>
       </div>

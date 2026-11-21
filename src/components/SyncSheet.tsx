@@ -26,24 +26,35 @@ export function SyncSheet({
   const [datasetUrl, setDatasetUrl] = useState('');
   const [lastSynced, setLastSynced] = useState('');
   const [copied, setCopied] = useState(false);
+  const [loadingMeta, setLoadingMeta] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    let active = true;
+    setLoadingMeta(true);
     (async () => {
-      const [key, api, ds, last] = await Promise.all([
-        getOrCreateSyncKey(),
-        getApiBaseUrl(),
-        getMeta('datasetBaseUrl', ''),
-        getMeta('lastSyncedAt', '')
-      ]);
-      setSyncKey(key);
-      setApiUrl(api);
-      setDatasetUrl(ds);
-      setLastSynced(last);
-      setStatusMsg(null);
+      try {
+        const [key, api, ds, last] = await Promise.all([
+          getOrCreateSyncKey(),
+          getApiBaseUrl(),
+          getMeta('datasetBaseUrl', ''),
+          getMeta('lastSyncedAt', '')
+        ]);
+        if (!active) return;
+        setSyncKey(key);
+        setApiUrl(api);
+        setDatasetUrl(ds);
+        setLastSynced(last);
+        setStatusMsg(null);
+      } finally {
+        if (active) setLoadingMeta(false);
+      }
     })();
+    return () => {
+      active = false;
+    };
   }, [open]);
 
   if (!open) return null;
@@ -91,11 +102,11 @@ export function SyncSheet({
 
   return (
     <div className="fixed inset-0 z-50 bg-[#18221F]/45 backdrop-blur-sm flex items-end justify-center p-2.5">
-      <div className="w-full max-w-[420px] rounded-[30px] bg-white border border-[#E6E4DD] p-5 safe-bottom shadow-float max-h-[88dvh] overflow-y-auto">
+      <div className="w-full max-w-[420px] rounded-[30px] bg-white border border-[#E6E4DD] p-5 safe-bottom shadow-float max-h-[88dvh] overflow-y-auto vocket-content-enter">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Cloud className="h-4 w-4 text-teal-700" />
-            <h2 className="text-sm font-bold text-[#18221F]">Sync & Setup</h2>
+            <h2 className="text-sm font-bold text-[#18221F]">Sync &amp; Setup</h2>
           </div>
           <button
             onClick={onClose}
@@ -105,120 +116,149 @@ export function SyncSheet({
           </button>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-1.5">
-              Aksen TTS
-            </label>
-            <div className="grid grid-cols-2 gap-1 p-1 rounded-full bg-[#ECEAE3]">
-              {(['us', 'uk'] as const).map((a) => (
-                <button
-                  key={a}
-                  onClick={() => onAccentChange(a)}
-                  className={`h-8 rounded-full text-xs font-semibold uppercase transition ${
-                    accent === a ? 'bg-white text-[#18221F] shadow-sm' : 'text-[#5C6863]'
-                  }`}
-                >
-                  {a === 'us' ? 'US English' : 'UK English'}
-                </button>
-              ))}
+        {syncing && (
+          <div className="mb-4 space-y-1.5">
+            <div className="h-1.5 w-full rounded-full bg-[#ECEAE3] overflow-hidden vocket-bar-indeterminate" />
+            <p className="text-[11px] font-medium text-teal-700 text-center">
+              Menyinkronkan data dengan Cloudflare D1...
+            </p>
+          </div>
+        )}
+
+        {loadingMeta ? (
+          <div className="space-y-4" aria-busy="true" aria-label="Memuat pengaturan sync">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="space-y-2">
+                <div className="vocket-shimmer h-3 w-24 rounded-full" />
+                <div className="vocket-shimmer h-10 w-full rounded-full" />
+              </div>
+            ))}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="vocket-shimmer h-11 rounded-full" />
+              <div className="vocket-shimmer h-11 rounded-full" />
             </div>
           </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-1.5">
+                Aksen TTS
+              </label>
+              <div className="grid grid-cols-2 gap-1 p-1 rounded-full bg-[#ECEAE3]">
+                {(['us', 'uk'] as const).map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => onAccentChange(a)}
+                    className={`h-8 rounded-full text-xs font-semibold uppercase transition ${
+                      accent === a ? 'bg-white text-[#18221F] shadow-sm' : 'text-[#5C6863]'
+                    }`}
+                  >
+                    {a === 'us' ? 'US English' : 'UK English'}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-          <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-1.5">
-              Sync Key (D1)
-            </label>
-            <div className="flex gap-2">
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-1.5">
+                Sync Key (D1)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  value={syncKey}
+                  onChange={(e) => setSyncKey(e.target.value.toUpperCase())}
+                  className="flex-1 h-10 rounded-full border border-[#E6E4DD] bg-[#F6F5F1] px-4 font-mono text-xs text-[#18221F] focus:outline-none focus:border-teal-700"
+                  placeholder="VCK-XXXX-XXXX"
+                />
+                <button
+                  onClick={handleCopyKey}
+                  className="h-10 w-10 rounded-full border border-[#E6E4DD] bg-[#F6F5F1] text-[#4E5B56] flex items-center justify-center"
+                  aria-label="Copy"
+                >
+                  {copied ? (
+                    <Check className="h-4 w-4 text-emerald-600" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-1.5">
+                Worker API URL
+              </label>
               <input
-                value={syncKey}
-                onChange={(e) => setSyncKey(e.target.value.toUpperCase())}
-                className="flex-1 h-10 rounded-full border border-[#E6E4DD] bg-[#F6F5F1] px-4 font-mono text-xs text-[#18221F] focus:outline-none focus:border-teal-700"
-                placeholder="VCK-XXXX-XXXX"
+                value={apiUrl}
+                onChange={(e) => setApiUrl(e.target.value)}
+                className="w-full h-10 rounded-full border border-[#E6E4DD] bg-[#F6F5F1] px-4 text-xs text-[#18221F] focus:outline-none focus:border-teal-700"
+                placeholder="https://vocket-api.user.workers.dev"
               />
-              <button
-                onClick={handleCopyKey}
-                className="h-10 w-10 rounded-full border border-[#E6E4DD] bg-[#F6F5F1] text-[#4E5B56] flex items-center justify-center"
-                aria-label="Copy"
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-1.5">
+                GitHub Dataset URL (Opsional)
+              </label>
+              <input
+                value={datasetUrl}
+                onChange={(e) => setDatasetUrl(e.target.value)}
+                className="w-full h-10 rounded-full border border-[#E6E4DD] bg-[#F6F5F1] px-4 text-xs text-[#18221F] focus:outline-none focus:border-teal-700"
+                placeholder="Kosong = /dataset lokal"
+              />
+            </div>
+
+            {lastSynced && (
+              <p className="text-[11px] text-[#7B8681]">
+                Terakhir sinkron: {new Date(lastSynced).toLocaleString('id-ID')}
+              </p>
+            )}
+
+            {statusMsg && (
+              <div
+                className={`rounded-2xl px-3.5 py-2.5 text-xs ${
+                  statusMsg.type === 'ok'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}
               >
-                {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                {statusMsg.text}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                onClick={handleSave}
+                disabled={syncing}
+                className="h-11 rounded-full border border-[#E6E4DD] bg-white text-[#18221F] text-xs font-bold active:scale-[0.98] transition disabled:opacity-50"
+              >
+                Save
+              </button>
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="h-11 rounded-full bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-fab active:scale-[0.98] transition disabled:opacity-60"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Syncing...' : 'Sync D1'}
               </button>
             </div>
-          </div>
 
-          <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-1.5">
-              Worker API URL
-            </label>
-            <input
-              value={apiUrl}
-              onChange={(e) => setApiUrl(e.target.value)}
-              className="w-full h-10 rounded-full border border-[#E6E4DD] bg-[#F6F5F1] px-4 text-xs text-[#18221F] focus:outline-none focus:border-teal-700"
-              placeholder="https://vocket-api.user.workers.dev"
-            />
-          </div>
+            <button
+              onClick={() => {
+                onClose();
+                onReloadDataset();
+              }}
+              className="w-full h-10 rounded-full bg-[#F2F1EC] text-[#4E5B56] text-xs font-semibold active:scale-[0.98] transition"
+            >
+              Muat Ulang Dataset ke IndexedDB
+            </button>
 
-          <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-1.5">
-              GitHub Dataset URL (Opsional)
-            </label>
-            <input
-              value={datasetUrl}
-              onChange={(e) => setDatasetUrl(e.target.value)}
-              className="w-full h-10 rounded-full border border-[#E6E4DD] bg-[#F6F5F1] px-4 text-xs text-[#18221F] focus:outline-none focus:border-teal-700"
-              placeholder="Kosong = /dataset lokal"
-            />
-          </div>
-
-          {lastSynced && (
-            <p className="text-[11px] text-[#7B8681]">
-              Terakhir sinkron: {new Date(lastSynced).toLocaleString('id-ID')}
+            <p className="pt-1 text-center font-mono text-[11px] text-[#8A948F]">
+              vocket v{__APP_VERSION__}
             </p>
-          )}
-
-          {statusMsg && (
-            <div
-              className={`rounded-2xl px-3.5 py-2.5 text-xs ${
-                statusMsg.type === 'ok'
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  : 'bg-rose-50 text-rose-800 border border-rose-200'
-              }`}
-            >
-              {statusMsg.text}
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <button
-              onClick={handleSave}
-              className="h-11 rounded-full border border-[#E6E4DD] bg-white text-[#18221F] text-xs font-bold active:scale-[0.98] transition"
-            >
-              Save
-            </button>
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="h-11 rounded-full bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-fab active:scale-[0.98] transition disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-              Sync D1
-            </button>
           </div>
-
-          <button
-            onClick={() => {
-              onClose();
-              onReloadDataset();
-            }}
-            className="w-full h-10 rounded-full bg-[#F2F1EC] text-[#4E5B56] text-xs font-semibold active:scale-[0.98] transition"
-          >
-            Muat Ulang Dataset ke IndexedDB
-          </button>
-
-          <p className="pt-1 text-center font-mono text-[11px] text-[#8A948F]">
-            vocket v{__APP_VERSION__}
-          </p>
-        </div>
+        )}
       </div>
     </div>
   );
