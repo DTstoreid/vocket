@@ -193,7 +193,7 @@ export function DictScreen({ accent }: Props) {
       {section === 'queue' && (
         <div className="space-y-3">
           <p className="text-xs font-medium text-[#64706B] px-1">
-            Kata di antrean ini diprioritaskan masuk ke jatah 10 kata harian berikutnya.
+            Kata di antrean ini diprioritaskan masuk ke jatah kata harian sesuai Stage aktif.
           </p>
           {queueWords === undefined ? (
             <DictListSkeleton count={3} />
