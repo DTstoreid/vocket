@@ -28,3 +28,122 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* --- 3D Splash Screen (GPU Compositor Only: transform & opacity) --- */
+.vocket-scene {
+  perspective: 900px;
+}
+
+.vocket-cube {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  transform-style: preserve-3d;
+  will-change: transform;
+  animation: vocket-cube-3d 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.vocket-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backface-visibility: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.vocket-face-front {
+  background: linear-gradient(145deg, #115e59, #0f766e);
+  transform: translateZ(38px);
+}
+.vocket-face-back {
+  background: linear-gradient(145deg, #0f766e, #134e4a);
+  transform: rotateY(180deg) translateZ(38px);
+}
+.vocket-face-right {
+  background: linear-gradient(145deg, #0d9488, #0f766e);
+  transform: rotateY(90deg) translateZ(38px);
+}
+.vocket-face-left {
+  background: linear-gradient(145deg, #134e4a, #0f3f3c);
+  transform: rotateY(-90deg) translateZ(38px);
+}
+.vocket-face-top {
+  background: linear-gradient(145deg, #2dd4bf, #0d9488);
+  transform: rotateX(90deg) translateZ(38px);
+}
+.vocket-face-bottom {
+  background: #0d3b38;
+  transform: rotateX(-90deg) translateZ(38px);
+}
+
+.vocket-shadow {
+  width: 68px;
+  height: 14px;
+  border-radius: 9999px;
+  background: radial-gradient(ellipse at center, rgba(15, 118, 110, 0.26) 0%, rgba(15, 118, 110, 0) 72%);
+  will-change: transform, opacity;
+  animation: vocket-shadow-3d 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.vocket-fade-up {
+  opacity: 0;
+  transform: translateY(10px);
+  will-change: transform, opacity;
+  animation: vocket-fade-up 0.65s cubic-bezier(0.22, 1, 0.36, 1) 0.28s forwards;
+}
+
+@keyframes vocket-cube-3d {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.72) rotateX(-38deg) rotateY(-120deg);
+  }
+  45% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.04) rotateX(-16deg) rotateY(22deg);
+  }
+  75% {
+    transform: translateY(0px) scale(1) rotateX(-12deg) rotateY(-14deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1) rotateX(-14deg) rotateY(16deg);
+  }
+}
+
+@keyframes vocket-shadow-3d {
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  45% {
+    opacity: 0.9;
+    transform: scale(0.82);
+  }
+  100% {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+}
+
+@keyframes vocket-fade-up {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vocket-cube,
+  .vocket-shadow,
+  .vocket-fade-up {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .vocket-cube {
+    transform: rotateX(-14deg) rotateY(16deg);
+  }
+}
