@@ -1,4 +1,3 @@
-```typescript
 import type { WordRecord } from '../types/vocab';
 
 export type Accent = 'us' | 'uk';
@@ -216,4 +215,3 @@ export function delayMs(ms: number, signal?: AbortSignal): Promise<boolean> {
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
-```
