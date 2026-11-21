@@ -28,6 +28,7 @@ import { PronunciationSheet } from './components/PronunciationSheet';
 import { SyncSheet } from './components/SyncSheet';
 import { HomeScreen } from './screens/HomeScreen';
 import { SpeakScreen } from './screens/SpeakScreen';
+import { GameScreen } from './screens/GameScreen';
 import { DictScreen } from './screens/DictScreen';
 
 export function App() {
@@ -204,6 +205,8 @@ export function App() {
               onSelectWord={(item) => setPracticeItem(item)}
             />
           )}
+
+          {activeTab === 'game' && <GameScreen />}
 
           {activeTab === 'dict' && <DictScreen accent={accent} />}
         </main>
