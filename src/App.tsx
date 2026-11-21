@@ -155,37 +155,37 @@ export function App() {
   }
 
   return (
-    <div className="min-h-dvh bg-slate-100 flex justify-center">
-      <div className="w-full max-w-[430px] min-h-dvh bg-slate-50 shadow-sm border-x border-slate-200/70 flex flex-col">
-        {/* Clean Sticky Header */}
-        <header className="sticky top-0 z-20 h-14 px-4 bg-white/95 backdrop-blur-md border-b border-slate-200/70 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-lg bg-slate-900 flex items-center justify-center">
-              <span className="text-xs font-bold text-white tracking-tight">v</span>
+    <div className="min-h-dvh bg-[#ECEAE3] flex justify-center">
+      <div className="w-full max-w-[430px] min-h-dvh bg-[#F6F5F1] shadow-sm sm:border-x border-[#E6E4DD] flex flex-col">
+        {/* Clean Minimal Sticky Header */}
+        <header className="sticky top-0 z-20 h-14 px-4 bg-[#F6F5F1]/90 backdrop-blur-xl flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-xl bg-teal-700 flex items-center justify-center shadow-sm">
+              <span className="text-sm font-extrabold text-white tracking-tight">v</span>
             </div>
-            <span className="text-base font-bold tracking-tight text-slate-900">vocket</span>
+            <span className="text-[17px] font-extrabold tracking-tight text-[#18221F]">vocket</span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={() => handleAccentChange(accent === 'us' ? 'uk' : 'us')}
-              className="h-8 px-2.5 rounded-lg bg-slate-100 text-slate-700 font-mono text-[11px] font-semibold uppercase active:scale-95 transition"
+              className="h-8 px-3 rounded-full bg-white border border-[#E6E4DD] text-[#273430] font-mono text-[11px] font-semibold uppercase shadow-card active:scale-95 transition"
             >
               {accent}
             </button>
             <button
               onClick={() => setSyncOpen(true)}
               aria-label="Sync"
-              className="h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-medium flex items-center gap-1.5 active:scale-95 transition"
+              className="h-8 px-3 rounded-full bg-white border border-[#E6E4DD] text-[#18221F] text-xs font-semibold flex items-center gap-1.5 shadow-card active:scale-95 transition"
             >
-              <Cloud className="h-3.5 w-3.5 text-indigo-600" />
+              <Cloud className="h-3.5 w-3.5 text-teal-700" />
               Sync
             </button>
           </div>
         </header>
 
         {/* Main Scroll Content */}
-        <main className="flex-1 px-4 pt-4">
+        <main className="flex-1 px-4 pt-2">
           {activeTab === 'today' && (
             <HomeScreen
               summary={summary}
@@ -193,7 +193,6 @@ export function App() {
               onStartBatchQuiz={startBatchQuiz}
               onStartRemedialQuiz={startRemedialQuiz}
               onStartCumulativeQuiz={startCumulativeQuiz}
-              onOpenAudio={() => setAudioOpen(true)}
               onPracticeSpeak={(item) => setPracticeItem(item)}
             />
           )}
@@ -209,11 +208,13 @@ export function App() {
           {activeTab === 'dict' && <DictScreen accent={accent} />}
         </main>
 
-        {/* Bottom Navigation */}
+        {/* Flying Pill Navigation + Audio FAB */}
         <BottomNav
           active={activeTab}
           onChange={setActiveTab}
           remedialCount={summary.remedialCount}
+          showAudioFab={activeTab === 'today'}
+          onOpenAudio={() => setAudioOpen(true)}
         />
 
         {/* Sheets & Modals */}
