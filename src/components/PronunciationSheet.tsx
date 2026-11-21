@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Mic, MicOff, Volume2, X } from 'lucide-react';
 import type { AssignedWordWithDetails } from '../types/vocab';
 import { POS_LABEL } from '../types/vocab';
-import { speakWord, type Accent } from '../services/ttsService';
+import { speakWord, stopAllSpeech, type Accent } from '../services/ttsService';
 import {
   isSttSupported,
   listenAndScorePronunciation,
@@ -19,6 +19,7 @@ interface Props {
 
 export function PronunciationSheet({ item, accent, onClose, onUpdated }: Props) {
   const [recording, setRecording] = useState(false);
+  const [interimText, setInterimText] = useState('');
   const [result, setResult] = useState<PronunciationEvaluation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
@@ -36,11 +37,13 @@ export function PronunciationSheet({ item, accent, onClose, onUpdated }: Props) 
       return;
     }
 
+    stopAllSpeech();
     setError(null);
     setResult(null);
+    setInterimText('');
     setRecording(true);
 
-    const session = listenAndScorePronunciation(word.id);
+    const session = listenAndScorePronunciation(word.id, (txt) => setInterimText(txt));
     stopRef.current = session.stop;
 
     try {
@@ -69,8 +72,10 @@ export function PronunciationSheet({ item, accent, onClose, onUpdated }: Props) 
           <button
             onClick={() => {
               stopRef.current?.();
+              stopAllSpeech();
               setResult(null);
               setError(null);
+              setInterimText('');
               onClose();
             }}
             className="h-8 w-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center"
@@ -118,6 +123,13 @@ export function PronunciationSheet({ item, accent, onClose, onUpdated }: Props) 
           </button>
         </div>
 
+        {recording && (
+          <div className="rounded-xl bg-indigo-50 border border-indigo-200 px-3.5 py-2.5 text-xs text-indigo-800 mb-4 flex items-center justify-between">
+            <span>Mendengarkan... ucapkan &ldquo;{word.id}&rdquo;</span>
+            {interimText && <span className="font-mono font-semibold">{interimText}</span>}
+          </div>
+        )}
+
         {result && (
           <div className="rounded-2xl border border-slate-200 p-4 mb-4 flex items-center justify-between">
             <div>
@@ -142,7 +154,7 @@ export function PronunciationSheet({ item, accent, onClose, onUpdated }: Props) 
         )}
 
         {error && (
-          <div className="rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-2.5 text-xs text-rose-700 mb-4">
+          <div className="rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-2.5 text-xs text-rose-700 mb-4 leading-relaxed">
             {error}
           </div>
         )}
@@ -157,9 +169,7 @@ export function PronunciationSheet({ item, accent, onClose, onUpdated }: Props) 
           onClick={handleRecord}
           disabled={!sttReady}
           className={`w-full h-12 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition active:scale-[0.98] disabled:opacity-40 ${
-            recording
-              ? 'bg-rose-600 text-white'
-              : 'bg-slate-900 text-white'
+            recording ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'
           }`}
         >
           {recording ? (
