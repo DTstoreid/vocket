@@ -214,6 +214,10 @@ export function SyncSheet({
           >
             Muat Ulang Dataset ke IndexedDB
           </button>
+
+          <p className="pt-1 text-center font-mono text-[11px] text-[#8A948F]">
+            vocket v{__APP_VERSION__}
+          </p>
         </div>
       </div>
     </div>
