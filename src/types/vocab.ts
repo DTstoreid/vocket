@@ -72,6 +72,7 @@ export interface PriorityQueueItem {
 
 export type SourceType = 'AUTO' | 'CUSTOM';
 export type MasteryScore = 0 | 1 | 2;
+export type DailyStage = 1 | 2 | 3;
 
 export interface AssignedWord {
   wordId: string;
@@ -133,11 +134,16 @@ export interface AssignedWordWithDetails {
 export type GateStatus = 'OPEN' | 'BATCH_QUIZ' | 'CUMULATIVE_QUIZ';
 
 export interface DailyProgressSummary {
+  stage: DailyStage;
+  dailyQuota: number;
+  quizStreak: number;
+  streakTargetForNextStage: number;
   batchNumber: number;
   batchCount: number;
   batchTarget: number;
   dayNumber: number;
   daysPerBatch: number;
+  isEvaluationDay: boolean;
   gateStatus: GateStatus;
   pendingCumulativeBatch: number | null;
   remedialCount: number;
