@@ -18,7 +18,8 @@ import {
   DEFAULT_ROUND_SECONDS,
   loadScrambleRounds,
   pickNextRound,
-  saveGameRun
+  saveGameRun,
+  validateScrambleWord
 } from '../services/scrambleService';
 
 interface LetterTile {
@@ -31,6 +32,7 @@ interface FoundEntry {
   points: number;
   isPangram: boolean;
   isAssigned: boolean;
+  inRound: boolean;
 }
 
 type Phase = 'IDLE' | 'PLAYING' | 'FINISHED';
@@ -87,6 +89,8 @@ export function GameScreen() {
   }, [round]);
 
   const foundSet = useMemo(() => new Set(found.map((f) => f.word)), [found]);
+  const roundFoundCount = useMemo(() => found.filter((f) => f.inRound).length, [found]);
+  const bonusWordCount = useMemo(() => found.filter((f) => !f.inRound).length, [found]);
 
   const selectedTiles = useMemo(() => {
     const map = new Map(tiles.map((t) => [t.id, t]));
@@ -116,7 +120,6 @@ export function GameScreen() {
     });
   };
 
-  // Timer mundur selama PLAYING
   useEffect(() => {
     if (phase !== 'PLAYING' || !round) return;
     if (timeLeft <= 0) {
@@ -129,7 +132,6 @@ export function GameScreen() {
     return () => window.clearInterval(timer);
   }, [phase, timeLeft, score, found, round, roundIndex]);
 
-  // Auto-hide feedback singkat
   useEffect(() => {
     if (!feedback) return;
     const t = window.setTimeout(() => setFeedback(null), 1800);
@@ -181,7 +183,7 @@ export function GameScreen() {
     setTiles((prev) => shuffleArray(prev));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!round || phase !== 'PLAYING') return;
     const candidate = currentWord.toLowerCase().trim();
 
@@ -196,8 +198,9 @@ export function GameScreen() {
       return;
     }
 
-    if (!validWordSet.has(candidate)) {
-      setFeedback({ type: 'err', text: `"${candidate}" tidak ada di daftar ronde ini.` });
+    const validation = await validateScrambleWord(candidate, validWordSet);
+    if (!validation.valid) {
+      setFeedback({ type: 'err', text: `"${candidate}" tidak ditemukan di kamus.` });
       setSelectedIds([]);
       return;
     }
@@ -207,7 +210,8 @@ export function GameScreen() {
       word: candidate,
       points: res.points,
       isPangram: res.isPangram,
-      isAssigned: res.isAssigned
+      isAssigned: res.isAssigned,
+      inRound: validation.inRound
     };
 
     const nextFound = [entry, ...found];
@@ -217,6 +221,7 @@ export function GameScreen() {
     setSelectedIds([]);
 
     const tags: string[] = [];
+    if (!validation.inRound) tags.push('Kamus');
     if (res.isPangram) tags.push('Pangram +5');
     if (res.isAssigned) tags.push('Hafalan x2');
     setFeedback({
@@ -224,14 +229,9 @@ export function GameScreen() {
       text: `+${res.points} poin${tags.length ? ` (${tags.join(', ')})` : ''}`
     });
 
-    if (nextFound.length === round.words.length) {
-      finishRound(
-        nextScore,
-        nextFound,
-        round,
-        roundIndex,
-        DEFAULT_ROUND_SECONDS - timeLeft
-      );
+    const nextRoundFound = nextFound.filter((f) => f.inRound).length;
+    if (nextRoundFound === round.words.length) {
+      finishRound(nextScore, nextFound, round, roundIndex, DEFAULT_ROUND_SECONDS - timeLeft);
     }
   };
 
@@ -247,7 +247,7 @@ export function GameScreen() {
               </p>
               <h2 className="text-xl font-extrabold tracking-tight mt-0.5">Susun Kata</h2>
               <p className="text-xs text-teal-100/90 mt-1.5 leading-relaxed">
-                Susun kata 3–6 huruf dari 6 huruf acak dalam 90 detik. Kata hafalanmu mendapat bonus x2.
+                Susun kata bahasa Inggris 3–6 huruf dalam 90 detik. Kata di kamus &amp; hafalanmu tetap mendapat poin.
               </p>
             </div>
             <div className="h-11 w-11 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
@@ -331,7 +331,7 @@ export function GameScreen() {
                       {run.letters.split('').join(' ')}
                     </p>
                     <p className="text-[11px] text-[#7B8681] mt-0.5">
-                      {run.foundCount}/{run.totalWords} kata
+                      {run.foundCount} kata ditemukan
                       {run.assignedBonusCount > 0 ? ` • ${run.assignedBonusCount} hafalan` : ''}
                     </p>
                   </div>
@@ -360,7 +360,9 @@ export function GameScreen() {
           <p className="text-xs font-semibold uppercase tracking-wider text-teal-200">Ronde Selesai</p>
           <p className="mt-1 font-mono text-5xl font-extrabold">{score}</p>
           <p className="mt-2 text-xs text-teal-100">
-            Ditemukan {found.length} dari {round.words.length} kata • Terbaik: {Math.max(bestScore, score)}
+            {roundFoundCount}/{round.words.length} kata ronde
+            {bonusWordCount > 0 ? ` + ${bonusWordCount} kata kamus` : ''} • Terbaik:{' '}
+            {Math.max(bestScore, score)}
           </p>
 
           <div className="mt-5 grid grid-cols-2 gap-2.5">
@@ -461,14 +463,15 @@ export function GameScreen() {
       </div>
 
       {/* Indicator: Ditemukan X dari Y kata */}
-      <div className="flex items-center justify-between px-1">
+      <div className="flex items-center justify-between gap-2 px-1">
         <span className="text-xs font-semibold text-[#4E5B56]">
-          Ditemukan <span className="font-mono font-bold text-[#18221F]">{found.length}</span> dari{' '}
-          <span className="font-mono font-bold text-[#18221F]">{round?.words.length || 0}</span> kata
+          Ditemukan <span className="font-mono font-bold text-[#18221F]">{roundFoundCount}</span>{' '}
+          dari <span className="font-mono font-bold text-[#18221F]">{round?.words.length || 0}</span>{' '}
+          kata{bonusWordCount > 0 ? ` (+${bonusWordCount})` : ''}
         </span>
         {feedback && (
           <span
-            className={`text-xs font-bold ${
+            className={`text-xs font-bold shrink-0 ${
               feedback.type === 'ok' ? 'text-teal-700' : 'text-rose-600'
             }`}
           >
@@ -577,6 +580,11 @@ export function GameScreen() {
                 <Check className="h-3 w-3 text-teal-700" />
                 {f.word}
                 <span className="font-mono text-[10px] font-bold text-teal-700">+{f.points}</span>
+                {!f.inRound && (
+                  <span className="rounded-full bg-[#E6E4DD] text-[#4E5B56] px-1.5 text-[9px] font-bold">
+                    Kamus
+                  </span>
+                )}
                 {f.isAssigned && (
                   <span className="rounded-full bg-teal-700 text-white px-1.5 text-[9px] font-bold">
                     x2
