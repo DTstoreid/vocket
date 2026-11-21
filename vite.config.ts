@@ -1,15 +1,23 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const pkg = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf-8')
+) as { version: string };
+
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version)
+  },
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon-192.svg', 'icons/icon-512.svg'],
       manifest: {
-        name: 'Vocket V1.7.0',
+        name: 'Vocket - Vocab Tracker & Pronunciation',
         short_name: 'vocket',
         description: 'Monitor & track progress belajar kosakata Inggris - Indonesia dengan TTS & Pronunciation Lab.',
         theme_color: '#F6F5F1',
