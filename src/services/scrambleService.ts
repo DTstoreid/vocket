@@ -5,6 +5,7 @@ import { db } from '../db/vocketDb';
 export const DEFAULT_ROUND_SECONDS = 90;
 
 let cachedRounds: ScrambleRound[] | null = null;
+let cachedGlobalScrambleWords: Set<string> | null = null;
 
 export async function loadScrambleRounds(): Promise<ScrambleRound[]> {
   if (cachedRounds) return cachedRounds;
@@ -29,7 +30,51 @@ export async function loadScrambleRounds(): Promise<ScrambleRound[]> {
   }
 
   cachedRounds = data.rounds;
+
+  // Bangun kamus cepat dari seluruh kata valid di semua ronde game_scramble.json
+  const globalSet = new Set<string>();
+  for (const r of data.rounds) {
+    for (const w of r.words) {
+      globalSet.add(w.toLowerCase());
+    }
+    for (const p of r.pangrams) {
+      globalSet.add(p.toLowerCase());
+    }
+  }
+  cachedGlobalScrambleWords = globalSet;
+
   return cachedRounds;
+}
+
+/**
+ * Validasi kata 3 lapis:
+ * 1. Ada di daftar kata ronde aktif (round.words)
+ * 2. Ada di kamus vocab Dexie (db.words)
+ * 3. Ada di kamus bahasa Inggris gabungan dari seluruh ronde game_scramble.json
+ */
+export async function validateScrambleWord(
+  candidate: string,
+  roundWordSet: Set<string>
+): Promise<{ valid: boolean; inRound: boolean }> {
+  const clean = candidate.toLowerCase().trim();
+  if (clean.length < 3) {
+    return { valid: false, inRound: false };
+  }
+
+  if (roundWordSet.has(clean)) {
+    return { valid: true, inRound: true };
+  }
+
+  const inVocabDb = await db.words.get(clean);
+  if (inVocabDb) {
+    return { valid: true, inRound: false };
+  }
+
+  if (cachedGlobalScrambleWords && cachedGlobalScrambleWords.has(clean)) {
+    return { valid: true, inRound: false };
+  }
+
+  return { valid: false, inRound: false };
 }
 
 /**
