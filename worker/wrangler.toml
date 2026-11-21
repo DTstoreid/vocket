@@ -8,5 +8,5 @@ ALLOWED_ORIGIN = "*"
 [[d1_databases]]
 binding = "DB"
 database_name = "vocket-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "4eb8f728-27ba-4667-973c-929aabbf8cdd"
 migrations_dir = "migrations"
