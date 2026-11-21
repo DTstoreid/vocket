@@ -1,26 +1,34 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   Check,
   Clock,
   Delete,
+  Languages,
   Loader2,
   Play,
   RotateCcw,
   Send,
   Shuffle,
   Sparkles,
-  Trophy
+  Trophy,
+  X
 } from 'lucide-react';
 import type { ScrambleRound } from '../types/vocab';
 import { db } from '../db/vocketDb';
 import {
+  buildTranslationMatchSession,
   calculateWordScore,
   DEFAULT_ROUND_SECONDS,
   loadScrambleRounds,
+  MATCH_BONUS_POINTS,
+  MAX_GAME_HISTORY,
   pickNextRound,
+  pruneGameRuns,
   saveGameRun,
-  validateScrambleWord
+  validateScrambleWord,
+  type MatchOptionItem,
+  type MatchWordItem
 } from '../services/scrambleService';
 import { GameBoardSkeleton, GameHistorySkeleton } from '../components/LoadingSkeletons';
 
@@ -37,7 +45,8 @@ interface FoundEntry {
   inRound: boolean;
 }
 
-type Phase = 'IDLE' | 'PLAYING' | 'FINISHED';
+type Phase = 'IDLE' | 'PLAYING' | 'RESULT';
+type ResultStage = 'MATCHING' | 'REVIEWED';
 
 function shuffleArray<T>(arr: T[]): T[] {
   const copy = [...arr];
@@ -56,7 +65,9 @@ function formatTime(sec: number): string {
 
 export function GameScreen() {
   const [phase, setPhase] = useState<Phase>('IDLE');
+  const [resultStage, setResultStage] = useState<ResultStage>('MATCHING');
   const [loading, setLoading] = useState(false);
+  const [preparingMatch, setPreparingMatch] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -66,14 +77,29 @@ export function GameScreen() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [found, setFound] = useState<FoundEntry[]>([]);
   const [score, setScore] = useState(0);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const [timeLeft, setTimeLeft] = useState(DEFAULT_ROUND_SECONDS);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
+  // State sesi pencocokan terjemahan & review in-place
+  const [matchItems, setMatchItems] = useState<MatchWordItem[]>([]);
+  const [matchOptions, setMatchOptions] = useState<MatchOptionItem[]>([]);
+  const [activeWord, setActiveWord] = useState<string | null>(null);
+  const [userPairs, setUserPairs] = useState<Record<string, MatchOptionItem>>({});
+  const [matchBonus, setMatchBonus] = useState(0);
+  const [matchCorrectCount, setMatchCorrectCount] = useState(0);
+  const finishingRef = useRef(false);
+
   const assignedList = useLiveQuery(() => db.assignedWords.toArray(), [], []);
   const gameRuns = useLiveQuery(
-    () => db.gameRuns.orderBy('playedAt').reverse().limit(15).toArray(),
+    () => db.gameRuns.orderBy('playedAt').reverse().limit(MAX_GAME_HISTORY).toArray(),
     []
   );
+
+  // Pastikan data lama >5 langsung dibersihkan saat membuka layar Game
+  useEffect(() => {
+    pruneGameRuns(MAX_GAME_HISTORY).catch(() => {});
+  }, []);
 
   const runsSafe = gameRuns ?? [];
 
@@ -103,31 +129,88 @@ export function GameScreen() {
 
   const currentWord = selectedTiles.map((t) => t.char).join('');
 
-  const finishRound = async (
-    finalScore: number,
+  const usedOptionIds = useMemo(
+    () => new Set(Object.values(userPairs).map((opt) => opt.id)),
+    [userPairs]
+  );
+
+  const pairedCount = Object.keys(userPairs).length;
+  const allMatched = matchItems.length > 0 && pairedCount === matchItems.length;
+
+  const persistRun = async (
+    finalTotalScore: number,
     finalFound: FoundEntry[],
     activeRound: ScrambleRound,
     activeRoundIdx: number,
-    elapsedSeconds: number
+    durationSec: number,
+    correctMatches: number,
+    totalMatches: number
   ) => {
-    setPhase('FINISHED');
     await saveGameRun({
       roundIndex: activeRoundIdx,
       letters: activeRound.letters,
-      score: finalScore,
+      score: finalTotalScore,
       foundCount: finalFound.length,
       totalWords: activeRound.words.length,
       pangramsFound: finalFound.filter((f) => f.isPangram).length,
       assignedBonusCount: finalFound.filter((f) => f.isAssigned).length,
-      durationSeconds: elapsedSeconds,
+      matchCorrect: correctMatches,
+      matchTotal: totalMatches,
+      durationSeconds: durationSec,
       playedAt: new Date().toISOString()
     });
+  };
+
+  /**
+   * Masuk ke panel hasil & sesi mencocokkan terjemahan Indonesia
+   * setelah waktu habis atau tombol Selesai ditekan.
+   */
+  const proceedToMatchingOrFinish = async (
+    currentScore: number,
+    currentFound: FoundEntry[],
+    activeRound: ScrambleRound,
+    activeRoundIdx: number,
+    durationSec: number
+  ) => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    setElapsedSec(durationSec);
+    setPreparingMatch(true);
+    setPhase('RESULT');
+
+    try {
+      const session = await buildTranslationMatchSession(currentFound);
+      setMatchItems(session.items);
+      setMatchOptions(session.options);
+      setUserPairs({});
+      setMatchBonus(0);
+      setMatchCorrectCount(0);
+
+      if (session.items.length > 0) {
+        setActiveWord(session.items[0].word);
+        setResultStage('MATCHING');
+      } else {
+        setActiveWord(null);
+        setResultStage('REVIEWED');
+        await persistRun(
+          currentScore,
+          currentFound,
+          activeRound,
+          activeRoundIdx,
+          durationSec,
+          0,
+          0
+        );
+      }
+    } finally {
+      setPreparingMatch(false);
+    }
   };
 
   useEffect(() => {
     if (phase !== 'PLAYING' || !round) return;
     if (timeLeft <= 0) {
-      finishRound(score, found, round, roundIndex, DEFAULT_ROUND_SECONDS);
+      proceedToMatchingOrFinish(score, found, round, roundIndex, DEFAULT_ROUND_SECONDS);
       return;
     }
     const timer = window.setInterval(() => {
@@ -145,6 +228,7 @@ export function GameScreen() {
   const startNewRound = async () => {
     setLoading(true);
     setLoadError(null);
+    finishingRef.current = false;
     try {
       const rounds = await loadScrambleRounds();
       const picked = await pickNextRound(rounds);
@@ -158,6 +242,14 @@ export function GameScreen() {
       setSelectedIds([]);
       setFound([]);
       setScore(0);
+      setElapsedSec(0);
+      setMatchItems([]);
+      setMatchOptions([]);
+      setUserPairs({});
+      setActiveWord(null);
+      setMatchBonus(0);
+      setMatchCorrectCount(0);
+      setResultStage('MATCHING');
       setTimeLeft(DEFAULT_ROUND_SECONDS);
       setFeedback(null);
       setPhase('PLAYING');
@@ -237,11 +329,90 @@ export function GameScreen() {
 
       const nextRoundFound = nextFound.filter((f) => f.inRound).length;
       if (nextRoundFound === round.words.length) {
-        finishRound(nextScore, nextFound, round, roundIndex, DEFAULT_ROUND_SECONDS - timeLeft);
+        proceedToMatchingOrFinish(
+          nextScore,
+          nextFound,
+          round,
+          roundIndex,
+          DEFAULT_ROUND_SECONDS - timeLeft
+        );
       }
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // --- INTERAKSI PENCOCOKAN TERJEMAHAN ---
+  const handleSelectWordSlot = (word: string) => {
+    if (resultStage !== 'MATCHING') return;
+    if (userPairs[word]) {
+      // Tap slot yang sudah terisi -> lepaskan pasangannya agar mudah diganti
+      setUserPairs((prev) => {
+        const next = { ...prev };
+        delete next[word];
+        return next;
+      });
+    }
+    setActiveWord(word);
+  };
+
+  const handlePickTranslationOption = (option: MatchOptionItem) => {
+    if (resultStage !== 'MATCHING') return;
+
+    // Tentukan kata target: gunakan activeWord, atau otomatis cari kata pertama yang belum dipasangkan
+    const targetWord =
+      activeWord && !userPairs[activeWord]
+        ? activeWord
+        : activeWord ?? matchItems.find((item) => !userPairs[item.word])?.word ?? null;
+
+    if (!targetWord) return;
+
+    const nextPairs: Record<string, MatchOptionItem> = { ...userPairs };
+    // Jika opsi ini sebelumnya dipakai kata lain, lepaskan dulu
+    for (const [k, v] of Object.entries(nextPairs)) {
+      if (v.id === option.id) {
+        delete nextPairs[k];
+      }
+    }
+    nextPairs[targetWord] = option;
+    setUserPairs(nextPairs);
+
+    // Pindahkan fokus otomatis ke kata berikutnya yang masih kosong
+    const nextEmpty = matchItems.find((item) => !nextPairs[item.word]);
+    setActiveWord(nextEmpty ? nextEmpty.word : null);
+  };
+
+  /**
+   * Review langsung di panel hasil user dengan transisi smooth (tanpa pindah panel)
+   */
+  const handleCheckMatches = async () => {
+    if (!round || resultStage === 'REVIEWED') return;
+
+    let correct = 0;
+    for (const item of matchItems) {
+      const picked = userPairs[item.word];
+      if (picked && picked.translation.toLowerCase() === item.translation.toLowerCase()) {
+        correct++;
+      }
+    }
+
+    const bonus = correct * MATCH_BONUS_POINTS;
+    const finalTotalScore = score + bonus;
+
+    setMatchCorrectCount(correct);
+    setMatchBonus(bonus);
+    setActiveWord(null);
+    setResultStage('REVIEWED');
+
+    await persistRun(
+      finalTotalScore,
+      found,
+      round,
+      roundIndex,
+      elapsedSec,
+      correct,
+      matchItems.length
+    );
   };
 
   // --- LOADING NEW ROUND SKELETON ---
@@ -261,7 +432,8 @@ export function GameScreen() {
               </p>
               <h2 className="text-xl font-extrabold tracking-tight mt-0.5">Susun Kata</h2>
               <p className="text-xs text-teal-100/90 mt-1.5 leading-relaxed">
-                Susun kata bahasa Inggris 3–6 huruf dalam 90 detik. Kata di kamus &amp; hafalanmu tetap mendapat poin.
+                Susun kata bahasa Inggris 3–6 huruf dalam 90 detik, lalu cocokkan terjemahan
+                Indonesianya untuk bonus poin.
               </p>
             </div>
             <div className="h-11 w-11 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
@@ -278,9 +450,11 @@ export function GameScreen() {
             </div>
             <div className="rounded-2xl bg-black/20 px-3.5 py-2.5">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-teal-200/80">
-                Total Main
+                Riwayat Terbaru
               </p>
-              <p className="font-mono text-xl font-bold mt-0.5">{runsSafe.length}</p>
+              <p className="font-mono text-xl font-bold mt-0.5">
+                {runsSafe.length}/{MAX_GAME_HISTORY}
+              </p>
             </div>
           </div>
 
@@ -319,15 +493,15 @@ export function GameScreen() {
             ))}
           </div>
           <div className="mt-2.5 flex items-center justify-between text-[11px] text-[#5C6863] bg-[#F6F5F1] rounded-xl px-3 py-2">
-            <span>Pangram (6 huruf): +5</span>
-            <span className="font-semibold text-teal-700">Kata Tugas: x2</span>
+            <span>Pangram: +5 • Arti cocok: +{MATCH_BONUS_POINTS}</span>
+            <span className="font-semibold text-teal-700">Tugas: x2</span>
           </div>
         </section>
 
-        {/* Riwayat Game */}
+        {/* Riwayat Game (Maks 5 Terbaru) */}
         <div>
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-[#64706B] mb-2 px-1">
-            Riwayat ({runsSafe.length})
+            5 Riwayat Terbaru ({runsSafe.length})
           </h3>
           {gameRuns === undefined ? (
             <GameHistorySkeleton />
@@ -347,7 +521,10 @@ export function GameScreen() {
                       {run.letters.split('').join(' ')}
                     </p>
                     <p className="text-[11px] text-[#7B8681] mt-0.5">
-                      {run.foundCount} kata ditemukan
+                      {run.foundCount} kata
+                      {typeof run.matchTotal === 'number' && run.matchTotal > 0
+                        ? ` • Cocok ${run.matchCorrect ?? 0}/${run.matchTotal}`
+                        : ''}
                       {run.assignedBonusCount > 0 ? ` • ${run.assignedBonusCount} hafalan` : ''}
                     </p>
                   </div>
@@ -364,42 +541,290 @@ export function GameScreen() {
     );
   }
 
-  // --- PHASE 3: FINISHED ---
-  if (phase === 'FINISHED' && round) {
+  // --- PHASE 3: UNIFIED RESULT + TRANSLATION MATCHING + IN-PLACE SMOOTH REVIEW ---
+  if (phase === 'RESULT' && round) {
+    const isReviewed = resultStage === 'REVIEWED';
+    const totalFinalScore = score + matchBonus;
     const missedPangrams = round.pangrams.filter((p) => !foundSet.has(p));
+    const matchedWordSet = new Set(matchItems.map((m) => m.word));
+    const extraFoundWords = found.filter((f) => !matchedWordSet.has(f.word));
+
     return (
       <div className="space-y-4 pb-28 vocket-content-enter">
-        <section className="rounded-[26px] bg-gradient-to-br from-[#115E59] to-[#134E4A] text-white p-6 text-center shadow-float">
-          <div className="mx-auto h-11 w-11 rounded-2xl bg-white/15 flex items-center justify-center mb-3">
-            <Trophy className="h-5 w-5 text-teal-200" />
+        {/* Hero Score Card (bertransisi mulus dari skor susun kata ke skor akhir) */}
+        <section className="rounded-[26px] bg-gradient-to-br from-[#115E59] to-[#134E4A] text-white p-5 text-center shadow-float transition-all duration-500">
+          <div className="mx-auto h-11 w-11 rounded-2xl bg-white/15 flex items-center justify-center mb-2.5">
+            {isReviewed ? (
+              <Trophy className="h-5 w-5 text-teal-200" />
+            ) : (
+              <Languages className="h-5 w-5 text-teal-200" />
+            )}
           </div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-teal-200">Ronde Selesai</p>
-          <p className="mt-1 font-mono text-5xl font-extrabold">{score}</p>
-          <p className="mt-2 text-xs text-teal-100">
-            {roundFoundCount}/{round.words.length} kata ronde
-            {bonusWordCount > 0 ? ` + ${bonusWordCount} kata kamus` : ''} • Terbaik:{' '}
-            {Math.max(bestScore, score)}
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-200">
+            {isReviewed ? 'Hasil Akhir Ronde' : 'Sesi Lanjutan • Cocokkan Arti'}
+          </p>
+          <p className="mt-1 font-mono text-4xl font-extrabold transition-all duration-500">
+            {totalFinalScore}
+          </p>
+          <p className="mt-1.5 text-xs text-teal-100/90">
+            {isReviewed ? (
+              <>
+                Susun kata {score}
+                {matchBonus > 0 ? ` + Cocokkan ${matchBonus}` : ''}
+                {matchItems.length > 0
+                  ? ` • Arti benar ${matchCorrectCount}/${matchItems.length}`
+                  : ''}
+              </>
+            ) : (
+              <>
+                {roundFoundCount}/{round.words.length} kata ronde
+                {bonusWordCount > 0 ? ` + ${bonusWordCount} kata kamus` : ''} • Pasangkan arti
+                Indonesianya
+              </>
+            )}
           </p>
 
-          <div className="mt-5 grid grid-cols-2 gap-2.5">
-            <button
-              onClick={() => setPhase('IDLE')}
-              className="h-11 rounded-full bg-white/15 text-white text-xs font-bold active:scale-95 transition"
-            >
-              Riwayat
-            </button>
-            <button
-              onClick={startNewRound}
-              className="h-11 rounded-full bg-white text-[#115E59] text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 transition"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Main Lagi
-            </button>
+          {/* Tombol Aksi Akhir (muncul mulus saat sudah direview) */}
+          <div
+            className={`grid transition-[grid-template-rows,opacity,margin] duration-500 ease-out ${
+              isReviewed ? 'grid-rows-[1fr] opacity-100 mt-4' : 'grid-rows-[0fr] opacity-0 mt-0'
+            }`}
+          >
+            <div className="overflow-hidden">
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  onClick={() => setPhase('IDLE')}
+                  className="h-11 rounded-full bg-white/15 text-white text-xs font-bold active:scale-95 transition"
+                >
+                  Riwayat
+                </button>
+                <button
+                  onClick={startNewRound}
+                  className="h-11 rounded-full bg-white text-[#115E59] text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 transition"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Main Lagi
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 
-        {missedPangrams.length > 0 && (
+        {/* Panel Pencocokan & Review In-Place (SATU panel yang sama!) */}
+        {preparingMatch ? (
+          <section className="rounded-[24px] bg-white border border-[#E6E4DD] p-4 shadow-card space-y-3">
+            <div className="vocket-shimmer h-4 w-44 rounded-md" />
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="vocket-shimmer h-14 w-full rounded-2xl" />
+            ))}
+          </section>
+        ) : matchItems.length > 0 ? (
+          <section className="rounded-[24px] bg-white border border-[#E6E4DD] p-4 shadow-card space-y-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-[#64706B]">
+                {isReviewed
+                  ? `Review Pencocokan (${matchCorrectCount}/${matchItems.length} Benar)`
+                  : `Cocokkan Terjemahan (${pairedCount}/${matchItems.length})`}
+              </p>
+              {!isReviewed && (
+                <span className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200/70 rounded-full px-2.5 py-0.5">
+                  +{MATCH_BONUS_POINTS} / benar
+                </span>
+              )}
+            </div>
+
+            {/* Daftar Baris Kata User — Review langsung terjadi pada baris-baris ini */}
+            <div className="space-y-2">
+              {matchItems.map((item, idx) => {
+                const picked = userPairs[item.word];
+                const isActive = !isReviewed && activeWord === item.word;
+                const isCorrect =
+                  isReviewed &&
+                  Boolean(picked) &&
+                  picked.translation.toLowerCase() === item.translation.toLowerCase();
+                const isWrong = isReviewed && !isCorrect;
+
+                return (
+                  <div
+                    key={item.word}
+                    style={{ transitionDelay: isReviewed ? `${idx * 65}ms` : '0ms' }}
+                    className={`rounded-2xl border p-3 transition-all duration-500 ease-out ${
+                      isCorrect
+                        ? 'border-emerald-300 bg-emerald-50/75'
+                        : isWrong
+                          ? 'border-rose-300 bg-rose-50/70'
+                          : isActive
+                            ? 'border-teal-600 bg-teal-50/50 ring-2 ring-teal-600/20'
+                            : 'border-[#E6E4DD] bg-[#F9F8F5]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2.5">
+                      <button
+                        type="button"
+                        disabled={isReviewed}
+                        onClick={() => handleSelectWordSlot(item.word)}
+                        className="text-left min-w-0 flex items-center gap-2"
+                      >
+                        <span className="text-sm font-extrabold text-[#18221F]">{item.word}</span>
+                        <span className="font-mono text-[10px] font-bold text-[#7B8681]">
+                          +{item.points}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isReviewed}
+                        onClick={() => handleSelectWordSlot(item.word)}
+                        className={`max-w-[60%] rounded-xl px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 transition-all duration-300 ${
+                          isCorrect
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : isWrong
+                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                              : picked
+                                ? 'bg-teal-700 text-white shadow-sm active:scale-95'
+                                : isActive
+                                  ? 'bg-white border border-dashed border-teal-500 text-teal-700'
+                                  : 'bg-white border border-dashed border-[#D6D3C9] text-[#8A948F]'
+                        }`}
+                      >
+                        {isCorrect && <Check className="h-3.5 w-3.5 shrink-0" />}
+                        {isWrong && <X className="h-3.5 w-3.5 shrink-0" />}
+                        <span className={`truncate ${isWrong && picked ? 'line-through' : ''}`}>
+                          {picked ? picked.translation : isReviewed ? 'Tidak dipilih' : 'Pilih arti'}
+                        </span>
+                        {isCorrect && (
+                          <span className="font-mono text-[10px] bg-white/20 rounded-full px-1.5 py-0.2 shrink-0">
+                            +{MATCH_BONUS_POINTS}
+                          </span>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Transisi smooth inline untuk menampilkan pencocokan yang benar langsung di baris user */}
+                    <div
+                      style={{ transitionDelay: isReviewed ? `${idx * 65 + 120}ms` : '0ms' }}
+                      className={`grid transition-[grid-template-rows,opacity,margin] duration-500 ease-out ${
+                        isWrong
+                          ? 'grid-rows-[1fr] opacity-100 mt-2.5'
+                          : 'grid-rows-[0fr] opacity-0 mt-0'
+                      }`}
+                    >
+                      <div className="overflow-hidden">
+                        <div className="rounded-xl bg-emerald-50 border border-emerald-200/90 px-3 py-1.5 flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1.5">
+                            <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                            Benar:
+                          </span>
+                          <span className="text-xs font-bold text-emerald-900 text-right">
+                            {item.translation}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Bank Pilihan Terjemahan Indonesia — menutup mulus saat masuk review */}
+            <div
+              className={`grid transition-[grid-template-rows,opacity] duration-500 ease-out ${
+                !isReviewed ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+              }`}
+            >
+              <div className="overflow-hidden space-y-3 pt-1">
+                <div className="rounded-2xl bg-[#F6F5F1] border border-[#E6E4DD] p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#7B8681] mb-2">
+                    Pilihan Terjemahan Indonesia (tap untuk pasangkan)
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {matchOptions.map((opt) => {
+                      const used = usedOptionIds.has(opt.id);
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => handlePickTranslationOption(opt)}
+                          className={`rounded-full px-3.5 py-1.5 text-xs font-semibold border transition-all duration-200 active:scale-95 ${
+                            used
+                              ? 'bg-[#EAE8E1] border-transparent text-[#9BA39F]'
+                              : 'bg-white border-[#DDDAD0] text-[#18221F] hover:border-teal-600 shadow-sm'
+                          }`}
+                        >
+                          {opt.translation}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCheckMatches}
+                    className="h-11 rounded-full bg-[#F2F1EC] text-[#5C6863] text-xs font-bold active:scale-95 transition"
+                  >
+                    Lewati
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!allMatched}
+                    onClick={handleCheckMatches}
+                    className="col-span-2 h-11 rounded-full bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-fab disabled:opacity-40 disabled:shadow-none active:scale-95 transition"
+                  >
+                    <Check className="h-4 w-4" />
+                    Periksa Hasil
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : (
           <section className="rounded-[22px] bg-white border border-[#E6E4DD] p-4 shadow-card">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-2">
+              Kata Ditemukan ({found.length})
+            </p>
+            {found.length === 0 ? (
+              <p className="text-xs text-[#7B8681]">Belum ada kata yang ditemukan.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {found.map((f) => (
+                  <span
+                    key={f.word}
+                    className="rounded-full bg-[#F6F5F1] border border-[#E6E4DD] px-3 py-1 text-xs font-semibold text-[#18221F] flex items-center gap-1.5"
+                  >
+                    {f.word}
+                    <span className="font-mono text-[10px] text-teal-700">+{f.points}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Kata tambahan tanpa entri terjemahan di kamus lokal */}
+        {extraFoundWords.length > 0 && matchItems.length > 0 && (
+          <section className="rounded-[22px] bg-white border border-[#E6E4DD] p-4 shadow-card">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-2">
+              Kata Lain yang Ditemukan ({extraFoundWords.length})
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {extraFoundWords.map((f) => (
+                <span
+                  key={f.word}
+                  className="rounded-full bg-[#F6F5F1] border border-[#E6E4DD] px-3 py-1 text-xs font-semibold text-[#18221F] flex items-center gap-1.5"
+                >
+                  {f.word}
+                  <span className="font-mono text-[10px] text-teal-700">+{f.points}</span>
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Pangram Ronde Ini (muncul setelah review) */}
+        {isReviewed && missedPangrams.length > 0 && (
+          <section className="rounded-[22px] bg-white border border-[#E6E4DD] p-4 shadow-card vocket-content-enter">
             <p className="text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-2">
               Pangram Ronde Ini
             </p>
@@ -419,27 +844,6 @@ export function GameScreen() {
             </div>
           </section>
         )}
-
-        <section className="rounded-[22px] bg-white border border-[#E6E4DD] p-4 shadow-card">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-[#7B8681] mb-2.5">
-            Kata Ditemukan ({found.length})
-          </p>
-          {found.length === 0 ? (
-            <p className="text-xs text-[#7B8681]">Belum ada kata yang ditemukan.</p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {found.map((f) => (
-                <span
-                  key={f.word}
-                  className="rounded-full bg-[#F6F5F1] border border-[#E6E4DD] px-3 py-1 text-xs font-semibold text-[#18221F] flex items-center gap-1.5"
-                >
-                  {f.word}
-                  <span className="font-mono text-[10px] text-teal-700">+{f.points}</span>
-                </span>
-              ))}
-            </div>
-          )}
-        </section>
       </div>
     );
   }
@@ -470,7 +874,13 @@ export function GameScreen() {
         <button
           onClick={() =>
             round &&
-            finishRound(score, found, round, roundIndex, DEFAULT_ROUND_SECONDS - timeLeft)
+            proceedToMatchingOrFinish(
+              score,
+              found,
+              round,
+              roundIndex,
+              DEFAULT_ROUND_SECONDS - timeLeft
+            )
           }
           className="h-8 px-3 rounded-full bg-[#F2F1EC] text-[#4E5B56] text-xs font-semibold active:scale-95 transition"
         >
