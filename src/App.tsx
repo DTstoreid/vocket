@@ -31,6 +31,7 @@ import { HomeScreen } from './screens/HomeScreen';
 import { SpeakScreen } from './screens/SpeakScreen';
 import { GameScreen } from './screens/GameScreen';
 import { DictScreen } from './screens/DictScreen';
+import { DashboardScreen } from './screens/DashboardScreen';
 
 export function App() {
   const [ready, setReady] = useState(false);
@@ -163,6 +164,8 @@ export function App() {
     );
   }
 
+  const isDash = activeTab === 'dash';
+
   return (
     <>
       {showSplash && (
@@ -170,15 +173,33 @@ export function App() {
       )}
 
       {ready && summary && (
-        <div className="min-h-dvh bg-[#ECEAE3] flex justify-center">
-          <div className="w-full max-w-[430px] min-h-dvh bg-[#F6F5F1] shadow-sm sm:border-x border-[#E6E4DD] flex flex-col">
+        <div
+          className={`min-h-dvh flex justify-center transition-colors duration-300 ${
+            isDash ? 'bg-[#081A17]' : 'bg-[#ECEAE3]'
+          }`}
+        >
+          <div
+            className={`w-full max-w-[430px] min-h-dvh shadow-sm flex flex-col transition-colors duration-300 ${
+              isDash
+                ? 'bg-gradient-to-b from-[#0E2B26] via-[#10352F] to-[#0B221E] sm:border-x border-white/10'
+                : 'bg-[#F6F5F1] sm:border-x border-[#E6E4DD]'
+            }`}
+          >
             {/* Clean Minimal Sticky Header */}
-            <header className="sticky top-0 z-20 h-14 px-4 bg-[#F6F5F1]/90 backdrop-blur-xl flex items-center justify-between">
+            <header
+              className={`sticky top-0 z-20 h-14 px-4 backdrop-blur-xl flex items-center justify-between transition-colors ${
+                isDash ? 'bg-[#0E2B26]/80' : 'bg-[#F6F5F1]/90'
+              }`}
+            >
               <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-xl bg-teal-700 flex items-center justify-center shadow-sm">
+                <div className="h-8 w-8 rounded-xl bg-teal-600 flex items-center justify-center shadow-sm">
                   <span className="text-sm font-extrabold text-white tracking-tight">v</span>
                 </div>
-                <span className="text-[17px] font-extrabold tracking-tight text-[#18221F]">
+                <span
+                  className={`text-[17px] font-extrabold tracking-tight ${
+                    isDash ? 'text-[#F6F5F1]' : 'text-[#18221F]'
+                  }`}
+                >
                   vocket
                 </span>
               </div>
@@ -186,16 +207,24 @@ export function App() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handleAccentChange(accent === 'us' ? 'uk' : 'us')}
-                  className="h-8 px-3 rounded-full bg-white border border-[#E6E4DD] text-[#273430] font-mono text-[11px] font-semibold uppercase shadow-card active:scale-95 transition"
+                  className={`h-8 px-3 rounded-full font-mono text-[11px] font-semibold uppercase active:scale-95 transition ${
+                    isDash
+                      ? 'bg-white/10 border border-white/15 text-teal-50'
+                      : 'bg-white border border-[#E6E4DD] text-[#273430] shadow-card'
+                  }`}
                 >
                   {accent}
                 </button>
                 <button
                   onClick={() => setSyncOpen(true)}
                   aria-label="Sync"
-                  className="h-8 px-3 rounded-full bg-white border border-[#E6E4DD] text-[#18221F] text-xs font-semibold flex items-center gap-1.5 shadow-card active:scale-95 transition"
+                  className={`h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition ${
+                    isDash
+                      ? 'bg-white/10 border border-white/15 text-teal-50'
+                      : 'bg-white border border-[#E6E4DD] text-[#18221F] shadow-card'
+                  }`}
                 >
-                  <Cloud className="h-3.5 w-3.5 text-teal-700" />
+                  <Cloud className={`h-3.5 w-3.5 ${isDash ? 'text-teal-300' : 'text-teal-700'}`} />
                   Sync
                 </button>
               </div>
@@ -225,6 +254,8 @@ export function App() {
               {activeTab === 'game' && <GameScreen />}
 
               {activeTab === 'dict' && <DictScreen accent={accent} />}
+
+              {activeTab === 'dash' && <DashboardScreen />}
             </main>
 
             {/* Flying Pill Navigation + Audio FAB */}
@@ -234,6 +265,7 @@ export function App() {
               remedialCount={summary.remedialCount}
               showAudioFab={activeTab === 'today'}
               onOpenAudio={() => setAudioOpen(true)}
+              darkSurface={isDash}
             />
 
             {/* Sheets & Modals */}
