@@ -2,10 +2,12 @@ import { AlertCircle, Award, Lock, RotateCcw } from 'lucide-react';
 import type { AssignedWordWithDetails, DailyProgressSummary } from '../types/vocab';
 import type { Accent } from '../services/ttsService';
 import { VocabCard } from '../components/VocabCard';
+import { HomeScreenSkeleton } from '../components/LoadingSkeletons';
 
 interface Props {
   summary: DailyProgressSummary;
   accent: Accent;
+  loading?: boolean;
   onStartBatchQuiz: () => void;
   onStartRemedialQuiz: () => void;
   onStartCumulativeQuiz: () => void;
@@ -15,15 +17,20 @@ interface Props {
 export function HomeScreen({
   summary,
   accent,
+  loading = false,
   onStartBatchQuiz,
   onStartRemedialQuiz,
   onStartCumulativeQuiz,
   onPracticeSpeak
 }: Props) {
+  if (loading) {
+    return <HomeScreenSkeleton />;
+  }
+
   const batchPct = Math.min(100, Math.round((summary.batchCount / summary.batchTarget) * 100));
 
   return (
-    <div className="space-y-4 pb-28">
+    <div className="space-y-4 pb-28 vocket-content-enter">
       {/* Batch Progress Hero Card - Calm Deep Teal Gradient */}
       <section className="rounded-[24px] bg-gradient-to-br from-[#115E59] to-[#134E4A] text-white p-5 shadow-float">
         <div className="flex items-start justify-between mb-3.5">

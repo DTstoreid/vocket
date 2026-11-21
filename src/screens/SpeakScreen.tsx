@@ -2,12 +2,14 @@ import { useMemo, useState } from 'react';
 import { Mic, Volume2 } from 'lucide-react';
 import type { AssignedWordWithDetails } from '../types/vocab';
 import { speakWord, type Accent } from '../services/ttsService';
+import { SpeakScreenSkeleton } from '../components/LoadingSkeletons';
 
 type SpeakFilter = 'ALL' | 'NEW' | 'LOW' | 'FLUENT';
 
 interface Props {
   items: AssignedWordWithDetails[];
   accent: Accent;
+  loading?: boolean;
   onSelectWord: (item: AssignedWordWithDetails) => void;
 }
 
@@ -18,7 +20,7 @@ const FILTERS: Array<{ id: SpeakFilter; label: string }> = [
   { id: 'FLUENT', label: '80+' }
 ];
 
-export function SpeakScreen({ items, accent, onSelectWord }: Props) {
+export function SpeakScreen({ items, accent, loading = false, onSelectWord }: Props) {
   const [filter, setFilter] = useState<SpeakFilter>('ALL');
 
   const stats = useMemo(() => {
@@ -43,8 +45,12 @@ export function SpeakScreen({ items, accent, onSelectWord }: Props) {
     });
   }, [items, filter]);
 
+  if (loading) {
+    return <SpeakScreenSkeleton />;
+  }
+
   return (
-    <div className="space-y-4 pb-28">
+    <div className="space-y-4 pb-28 vocket-content-enter">
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-[22px] bg-white border border-[#E6E4DD] p-4 shadow-card">

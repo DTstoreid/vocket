@@ -4,6 +4,7 @@ import {
   Check,
   Clock,
   Delete,
+  Loader2,
   Play,
   RotateCcw,
   Send,
@@ -21,6 +22,7 @@ import {
   saveGameRun,
   validateScrambleWord
 } from '../services/scrambleService';
+import { GameBoardSkeleton, GameHistorySkeleton } from '../components/LoadingSkeletons';
 
 interface LetterTile {
   id: number;
@@ -55,6 +57,7 @@ function formatTime(sec: number): string {
 export function GameScreen() {
   const [phase, setPhase] = useState<Phase>('IDLE');
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [roundIndex, setRoundIndex] = useState(0);
@@ -69,9 +72,10 @@ export function GameScreen() {
   const assignedList = useLiveQuery(() => db.assignedWords.toArray(), [], []);
   const gameRuns = useLiveQuery(
     () => db.gameRuns.orderBy('playedAt').reverse().limit(15).toArray(),
-    [],
     []
   );
+
+  const runsSafe = gameRuns ?? [];
 
   const assignedSet = useMemo(
     () => new Set(assignedList.map((a) => a.wordId.toLowerCase())),
@@ -79,8 +83,8 @@ export function GameScreen() {
   );
 
   const bestScore = useMemo(
-    () => gameRuns.reduce((max, r) => Math.max(max, r.score), 0),
-    [gameRuns]
+    () => runsSafe.reduce((max, r) => Math.max(max, r.score), 0),
+    [runsSafe]
   );
 
   const validWordSet = useMemo(() => {
@@ -184,7 +188,7 @@ export function GameScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!round || phase !== 'PLAYING') return;
+    if (!round || phase !== 'PLAYING' || submitting) return;
     const candidate = currentWord.toLowerCase().trim();
 
     if (candidate.length < 3) {
@@ -198,47 +202,57 @@ export function GameScreen() {
       return;
     }
 
-    const validation = await validateScrambleWord(candidate, validWordSet);
-    if (!validation.valid) {
-      setFeedback({ type: 'err', text: `"${candidate}" tidak ditemukan di kamus.` });
+    setSubmitting(true);
+    try {
+      const validation = await validateScrambleWord(candidate, validWordSet);
+      if (!validation.valid) {
+        setFeedback({ type: 'err', text: `"${candidate}" tidak ditemukan di kamus.` });
+        setSelectedIds([]);
+        return;
+      }
+
+      const res = calculateWordScore(candidate, round, assignedSet);
+      const entry: FoundEntry = {
+        word: candidate,
+        points: res.points,
+        isPangram: res.isPangram,
+        isAssigned: res.isAssigned,
+        inRound: validation.inRound
+      };
+
+      const nextFound = [entry, ...found];
+      const nextScore = score + res.points;
+      setFound(nextFound);
+      setScore(nextScore);
       setSelectedIds([]);
-      return;
-    }
 
-    const res = calculateWordScore(candidate, round, assignedSet);
-    const entry: FoundEntry = {
-      word: candidate,
-      points: res.points,
-      isPangram: res.isPangram,
-      isAssigned: res.isAssigned,
-      inRound: validation.inRound
-    };
+      const tags: string[] = [];
+      if (!validation.inRound) tags.push('Kamus');
+      if (res.isPangram) tags.push('Pangram +5');
+      if (res.isAssigned) tags.push('Hafalan x2');
+      setFeedback({
+        type: 'ok',
+        text: `+${res.points} poin${tags.length ? ` (${tags.join(', ')})` : ''}`
+      });
 
-    const nextFound = [entry, ...found];
-    const nextScore = score + res.points;
-    setFound(nextFound);
-    setScore(nextScore);
-    setSelectedIds([]);
-
-    const tags: string[] = [];
-    if (!validation.inRound) tags.push('Kamus');
-    if (res.isPangram) tags.push('Pangram +5');
-    if (res.isAssigned) tags.push('Hafalan x2');
-    setFeedback({
-      type: 'ok',
-      text: `+${res.points} poin${tags.length ? ` (${tags.join(', ')})` : ''}`
-    });
-
-    const nextRoundFound = nextFound.filter((f) => f.inRound).length;
-    if (nextRoundFound === round.words.length) {
-      finishRound(nextScore, nextFound, round, roundIndex, DEFAULT_ROUND_SECONDS - timeLeft);
+      const nextRoundFound = nextFound.filter((f) => f.inRound).length;
+      if (nextRoundFound === round.words.length) {
+        finishRound(nextScore, nextFound, round, roundIndex, DEFAULT_ROUND_SECONDS - timeLeft);
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  // --- LOADING NEW ROUND SKELETON ---
+  if (loading) {
+    return <GameBoardSkeleton />;
+  }
 
   // --- PHASE 1: IDLE / LOBBY ---
   if (phase === 'IDLE') {
     return (
-      <div className="space-y-4 pb-28">
+      <div className="space-y-4 pb-28 vocket-content-enter">
         <section className="rounded-[26px] bg-gradient-to-br from-[#115E59] to-[#134E4A] text-white p-5 shadow-float">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -266,7 +280,7 @@ export function GameScreen() {
               <p className="text-[10px] font-semibold uppercase tracking-wider text-teal-200/80">
                 Total Main
               </p>
-              <p className="font-mono text-xl font-bold mt-0.5">{gameRuns.length}</p>
+              <p className="font-mono text-xl font-bold mt-0.5">{runsSafe.length}</p>
             </div>
           </div>
 
@@ -276,7 +290,7 @@ export function GameScreen() {
             className="mt-4 w-full h-12 rounded-full bg-white text-[#115E59] text-sm font-bold flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition disabled:opacity-60"
           >
             <Play className="h-4 w-4 fill-current" />
-            {loading ? 'Memuat...' : 'Mulai'}
+            Mulai
           </button>
         </section>
 
@@ -313,15 +327,17 @@ export function GameScreen() {
         {/* Riwayat Game */}
         <div>
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-[#64706B] mb-2 px-1">
-            Riwayat ({gameRuns.length})
+            Riwayat ({runsSafe.length})
           </h3>
-          {gameRuns.length === 0 ? (
+          {gameRuns === undefined ? (
+            <GameHistorySkeleton />
+          ) : runsSafe.length === 0 ? (
             <div className="rounded-[22px] bg-white border border-[#E6E4DD] p-6 text-center text-xs text-[#7B8681]">
               Belum ada riwayat permainan.
             </div>
           ) : (
             <div className="space-y-2">
-              {gameRuns.map((run) => (
+              {runsSafe.map((run) => (
                 <div
                   key={run.id}
                   className="rounded-[20px] bg-white border border-[#E6E4DD] px-4 py-3 shadow-card flex items-center justify-between"
@@ -352,7 +368,7 @@ export function GameScreen() {
   if (phase === 'FINISHED' && round) {
     const missedPangrams = round.pangrams.filter((p) => !foundSet.has(p));
     return (
-      <div className="space-y-4 pb-28">
+      <div className="space-y-4 pb-28 vocket-content-enter">
         <section className="rounded-[26px] bg-gradient-to-br from-[#115E59] to-[#134E4A] text-white p-6 text-center shadow-float">
           <div className="mx-auto h-11 w-11 rounded-2xl bg-white/15 flex items-center justify-center mb-3">
             <Trophy className="h-5 w-5 text-teal-200" />
@@ -430,7 +446,7 @@ export function GameScreen() {
 
   // --- PHASE 2: PLAYING ---
   return (
-    <div className="space-y-4 pb-28">
+    <div className="space-y-4 pb-28 vocket-content-enter">
       {/* Top Status Bar */}
       <div className="rounded-[22px] bg-white border border-[#E6E4DD] px-4 py-3 shadow-card flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -550,10 +566,14 @@ export function GameScreen() {
 
           <button
             onClick={handleSubmit}
-            disabled={selectedIds.length < 3}
+            disabled={selectedIds.length < 3 || submitting}
             className="h-11 rounded-full bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-fab disabled:opacity-40 disabled:shadow-none active:scale-95 transition"
           >
-            <Send className="h-3.5 w-3.5" />
+            {submitting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Send className="h-3.5 w-3.5" />
+            )}
             Kirim
           </button>
         </div>

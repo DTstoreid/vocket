@@ -118,12 +118,12 @@ export function DashboardScreen() {
 
       {isLoading ? (
         <div
-          className="w-full max-w-[360px] flex flex-col items-center animate-pulse"
+          className="w-full max-w-[360px] flex flex-col items-center"
           aria-busy="true"
           aria-label="Memuat statistik dashboard"
         >
           {/* Pie Chart Skeleton */}
-          <div className="w-full max-w-[300px] aspect-square flex items-center justify-center my-1">
+          <div className="w-full max-w-[300px] aspect-square flex items-center justify-center my-1 animate-pulse">
             <svg viewBox="40 40 320 320" className="w-full h-auto overflow-visible">
               <circle
                 cx={cx}
@@ -149,25 +149,25 @@ export function DashboardScreen() {
             </svg>
           </div>
 
-          {/* Legend Cards Skeleton */}
+          {/* Legend Cards Skeleton with Shimmer */}
           <div className="w-full mt-2 space-y-2.5 px-1">
             {[0, 1, 2].map((idx) => (
               <div
                 key={idx}
                 className="flex items-center gap-3 rounded-2xl bg-white/[0.06] border border-white/10 px-4 py-3"
               >
-                <span className="h-3 w-3 rounded-full bg-white/20 shrink-0" />
+                <span className="vocket-shimmer-dark h-3 w-3 rounded-full shrink-0" />
                 <div className="min-w-0 flex-1 space-y-2">
-                  <div className="h-3 w-28 rounded-md bg-white/15" />
-                  <div className="h-2.5 w-44 rounded-md bg-white/10" />
+                  <div className="vocket-shimmer-dark h-3 w-28 rounded-md" />
+                  <div className="vocket-shimmer-dark h-2.5 w-44 rounded-md" />
                 </div>
-                <div className="h-5 w-10 rounded-md bg-white/15 shrink-0" />
+                <div className="vocket-shimmer-dark h-5 w-10 rounded-md shrink-0" />
               </div>
             ))}
           </div>
         </div>
       ) : (
-        <>
+        <div className="w-full flex flex-col items-center vocket-content-enter">
           {/* Main 3-Segment Interlocking Chevron Pie Chart */}
           <div className="w-full max-w-[300px] my-1">
             <svg
@@ -234,34 +234,27 @@ export function DashboardScreen() {
                 strokeWidth="2"
               />
               <g transform="translate(200, 200)">
-                {/* Shadow under book */}
                 <ellipse cx="0" cy="22" rx="30" ry="7" fill="rgba(0,0,0,0.32)" />
-                {/* Book cover base */}
                 <path
                   d="M -32 8 L 0 21 L 32 8 L 28 -14 L 0 -3 L -28 -14 Z"
                   fill="#60A5FA"
                   opacity="0.35"
                 />
-                {/* Left page */}
                 <path
                   d="M -2 -20 C -11 -22 -22 -18 -30 -10 L -26 11 C -18 5 -9 3 -1 12 Z"
                   fill="#F8FAFC"
                 />
-                {/* Right page */}
                 <path
                   d="M 2 -20 C 11 -22 22 -18 30 -10 L 26 11 C 18 5 9 3 1 12 Z"
                   fill="#E2E8F0"
                 />
-                {/* Spine crease */}
                 <path d="M 0 -19 L 0 12" stroke="#94A3B8" strokeWidth="1.6" />
-                {/* Page text lines left */}
                 <path
                   d="M -23 -8 L -7 -12 M -22 -2 L -7 -6 M -21 4 L -7 0"
                   stroke="#CBD5E1"
                   strokeWidth="1.6"
                   strokeLinecap="round"
                 />
-                {/* Page text lines right */}
                 <path
                   d="M 7 -12 L 23 -8 M 7 -6 L 22 -2 M 7 0 L 21 4"
                   stroke="#94A3B8"
@@ -380,7 +373,7 @@ export function DashboardScreen() {
               </span>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
