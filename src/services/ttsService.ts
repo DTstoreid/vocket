@@ -14,10 +14,6 @@ function getSharedAudio(): HTMLAudioElement {
   return sharedAudioEl;
 }
 
-/**
- * Wajib dipanggil secara sinkron di dalam event onClick tombol Play
- * agar browser mobile (Android Chrome / iOS Safari) membuka izin audio & TTS.
- */
 export function unlockMobileAudio(): void {
   if (typeof window === 'undefined') return;
   if ('speechSynthesis' in window) {
@@ -103,7 +99,6 @@ export function speakText(
     };
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    // Jeda 60ms setelah cancel() agar Chrome Android tidak ikut membatalkan utterance baru
     window.setTimeout(() => {
       if (settled || signal?.aborted) {
         finish();
@@ -116,9 +111,7 @@ export function speakText(
       utterance.volume = 1;
 
       const voice = getBestVoice(lang);
-      if (voice) {
-        utterance.voice = voice;
-      }
+      if (voice) utterance.voice = voice;
 
       utterance.onend = finish;
       utterance.onerror = finish;
@@ -191,7 +184,7 @@ export async function speakWord(
       });
       return;
     } catch {
-      // Fallback mulus ke Web Speech API TTS jika offline atau file audio gagal diputar
+      // Fallback ke Web Speech API TTS
     }
   }
 
