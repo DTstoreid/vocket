@@ -71,13 +71,13 @@ export interface PriorityQueueItem {
 }
 
 export type SourceType = 'AUTO' | 'CUSTOM';
-export type MasteryScore = 0 | 1 | 2; // 0 = Belum diuji, 1 = Perlu Remedial, 2 = Lulus
+export type MasteryScore = 0 | 1 | 2;
 
 export interface AssignedWord {
   wordId: string;
   batchNumber: number;
   dayNumber: number;
-  assignedDate: string; // YYYY-MM-DD
+  assignedDate: string;
   sourceType: SourceType;
   masteryScore: MasteryScore;
   remedialCount: number;
@@ -143,6 +143,30 @@ export interface DailyProgressSummary {
   remedialCount: number;
   todayWords: AssignedWordWithDetails[];
   batchWords: AssignedWordWithDetails[];
+}
+
+export interface ScrambleRound {
+  letters: string;
+  pangrams: string[];
+  words: string[];
+}
+
+export interface ScrambleDataset {
+  version: number;
+  rounds: ScrambleRound[];
+}
+
+export interface GameRunRecord {
+  id?: number;
+  roundIndex: number;
+  letters: string;
+  score: number;
+  foundCount: number;
+  totalWords: number;
+  pangramsFound: number;
+  assignedBonusCount: number;
+  durationSeconds: number;
+  playedAt: string;
 }
 
 export const POS_LABEL: Record<string, string> = {
