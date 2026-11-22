@@ -2,17 +2,71 @@ import type {
   AssignedWord,
   AssignedWordWithDetails,
   DailyProgressSummary,
+  DailyStage,
   GateStatus,
   QuizDetailItem,
+  QuizHistoryRecord,
   QuizType,
   WordRecord
 } from '../types/vocab';
 import { db } from './vocketDb';
 
-export const DAILY_QUOTA = 10;
-export const BATCH_SIZE = 50;
-export const DAYS_PER_BATCH = 5;
-export const CUMULATIVE_EVERY_BATCHES = 5;
+export const STAGE_QUOTA: Record<DailyStage, number> = {
+  1: 15,
+  2: 25,
+  3: 35
+};
+
+export const DAYS_PER_BATCH = 3;
+export const CUMULATIVE_EVERY_BATCHES = 3;
+export const STAGE_UP_MIN_SCORE = 0.8;
+export const STAGE_KEEP_MIN_SCORE = 0.7;
+export const STREAK_TO_PROMOTE = 2;
+
+/**
+ * Menghitung Stage otomatis berdasarkan konsistensi hasil Kuis Batch:
+ * - Default: Stage 1 (15 kata/hari)
+ * - 2 kuis Batch berturut-turut skor >= 80% -> naik 1 Stage (Stage 1 -> 2 -> 3)
+ * - Skor 70% - 79% -> bertahan di Stage saat ini, streak promosi reset ke 0
+ * - Skor < 70% -> turun 1 Stage otomatis (minimal Stage 1), streak reset ke 0
+ */
+export function computeAutoStageFromHistory(history: QuizHistoryRecord[]): {
+  stage: DailyStage;
+  quizStreak: number;
+  streakTargetForNextStage: number;
+} {
+  const batchQuizzes = history
+    .filter((h) => h.quizType === 'BATCH' && h.totalQuestions > 0)
+    .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
+
+  let stage: DailyStage = 1;
+  let quizStreak = 0;
+
+  for (const q of batchQuizzes) {
+    const ratio = q.totalCorrect / q.totalQuestions;
+    if (ratio >= STAGE_UP_MIN_SCORE) {
+      quizStreak += 1;
+      if (stage < 3 && quizStreak >= STREAK_TO_PROMOTE) {
+        stage = (stage + 1) as DailyStage;
+        quizStreak = 0;
+      }
+    } else if (ratio < STAGE_KEEP_MIN_SCORE) {
+      quizStreak = 0;
+      if (stage > 1) {
+        stage = (stage - 1) as DailyStage;
+      }
+    } else {
+      // 70% - 79%: aman bertahan, tapi streak menuju naik stage direset
+      quizStreak = 0;
+    }
+  }
+
+  return {
+    stage,
+    quizStreak: stage === 3 ? STREAK_TO_PROMOTE : quizStreak,
+    streakTargetForNextStage: stage === 3 ? 0 : STREAK_TO_PROMOTE
+  };
+}
 
 export function getTodayIsoDate(): string {
   const now = new Date();
@@ -45,6 +99,10 @@ export async function ensureDailyTaskAndGetSummary(): Promise<DailyProgressSumma
   const allAssigned = await db.assignedWords.toArray();
   const allHistory = await db.quizHistory.toArray();
 
+  const { stage, quizStreak, streakTargetForNextStage } = computeAutoStageFromHistory(allHistory);
+  const dailyQuota = STAGE_QUOTA[stage];
+  const batchTarget = dailyQuota * DAYS_PER_BATCH;
+
   // Cari batch terbesar saat ini
   let currentBatch = 1;
   for (const row of allAssigned) {
@@ -61,11 +119,15 @@ export async function ensureDailyTaskAndGetSummary(): Promise<DailyProgressSumma
     allHistory.filter((h) => h.quizType === 'CUMULATIVE').map((h) => h.batchNumber)
   );
 
+  const distinctBatchDates = new Set(batchRows.map((r) => r.assignedDate));
+  const batchReachedCycle =
+    distinctBatchDates.size >= DAYS_PER_BATCH || batchRows.length >= batchTarget;
+
   let gateStatus: GateStatus = 'OPEN';
   let pendingCumulativeBatch: number | null = null;
 
-  // Cek apakah batch saat ini sudah 50 kata
-  if (batchRows.length >= BATCH_SIZE) {
+  // Cek apakah batch saat ini sudah mencapai siklus 3 hari atau target batch
+  if (batchReachedCycle) {
     if (!completedBatchQuizzes.has(currentBatch)) {
       gateStatus = 'BATCH_QUIZ';
     } else if (
@@ -75,23 +137,35 @@ export async function ensureDailyTaskAndGetSummary(): Promise<DailyProgressSumma
       gateStatus = 'CUMULATIVE_QUIZ';
       pendingCumulativeBatch = currentBatch;
     } else {
-      // Batch selesai penuh & kuis selesai -> lanjut batch baru
+      // Batch 3 hari & kuis selesai -> lanjut batch baru
       currentBatch += 1;
       batchRows = [];
       gateStatus = 'OPEN';
     }
   }
 
-  // Cek apakah hari ini sudah punya kata yang ditugaskan
-  const assignedToday = allAssigned.filter((r) => r.assignedDate === today);
+  // Cek kata yang sudah ditugaskan hari ini di batch aktif
+  const assignedTodayInBatch = batchRows.filter((r) => r.assignedDate === today);
+  const assignedTodayGlobal = allAssigned.filter((r) => r.assignedDate === today);
+  const existingDaysBeforeToday = new Set(
+    batchRows.filter((r) => r.assignedDate !== today).map((r) => r.assignedDate)
+  );
 
-  if (gateStatus === 'OPEN' && assignedToday.length === 0) {
-    const remainingBatchSlots = BATCH_SIZE - batchRows.length;
-    const slotsToFill = Math.min(DAILY_QUOTA, remainingBatchSlots);
+  const canAssignToday =
+    gateStatus === 'OPEN' &&
+    (assignedTodayGlobal.length === 0 || assignedTodayInBatch.length < dailyQuota);
+
+  if (canAssignToday) {
+    const dayNumberForToday = Math.min(DAYS_PER_BATCH, existingDaysBeforeToday.size + 1);
+    const alreadyTodayCount = assignedTodayInBatch.length;
+    const neededForToday = Math.max(0, dailyQuota - alreadyTodayCount);
+    const remainingBatchSlots = Math.max(0, batchTarget - batchRows.length);
+    const slotsToFill =
+      dayNumberForToday === DAYS_PER_BATCH
+        ? neededForToday
+        : Math.min(neededForToday, Math.max(neededForToday, remainingBatchSlots));
 
     if (slotsToFill > 0) {
-      const existingDays = new Set(batchRows.map((r) => r.dayNumber));
-      const nextDayNumber = Math.min(DAYS_PER_BATCH, existingDays.size + 1);
       const assignedSet = new Set(allAssigned.map((r) => r.wordId));
       const nowIso = new Date().toISOString();
       const newRows: AssignedWord[] = [];
@@ -114,7 +188,7 @@ export async function ensureDailyTaskAndGetSummary(): Promise<DailyProgressSumma
         newRows.push({
           wordId: q.wordId,
           batchNumber: currentBatch,
-          dayNumber: nextDayNumber,
+          dayNumber: dayNumberForToday,
           assignedDate: today,
           sourceType: 'CUSTOM',
           masteryScore: 0,
@@ -130,7 +204,6 @@ export async function ensureDailyTaskAndGetSummary(): Promise<DailyProgressSumma
 
       // Prioritas 2: freq_rank ASC (AUTO)
       if (newRows.length < slotsToFill) {
-        const needed = slotsToFill - newRows.length;
         const orderedWords = await db.words.orderBy('order').toArray();
         for (const w of orderedWords) {
           if (newRows.length >= slotsToFill) break;
@@ -138,7 +211,7 @@ export async function ensureDailyTaskAndGetSummary(): Promise<DailyProgressSumma
             newRows.push({
               wordId: w.id,
               batchNumber: currentBatch,
-              dayNumber: nextDayNumber,
+              dayNumber: dayNumberForToday,
               assignedDate: today,
               sourceType: 'AUTO',
               masteryScore: 0,
@@ -150,7 +223,6 @@ export async function ensureDailyTaskAndGetSummary(): Promise<DailyProgressSumma
             });
             assignedSet.add(w.id);
           }
-          if (newRows.length >= needed && newRows.length >= slotsToFill) break;
         }
       }
 
@@ -165,7 +237,11 @@ export async function ensureDailyTaskAndGetSummary(): Promise<DailyProgressSumma
         });
 
         batchRows = [...batchRows, ...newRows];
-        if (batchRows.length >= BATCH_SIZE && !completedBatchQuizzes.has(currentBatch)) {
+        const updatedDates = new Set(batchRows.map((r) => r.assignedDate));
+        if (
+          (updatedDates.size >= DAYS_PER_BATCH || batchRows.length >= batchTarget) &&
+          !completedBatchQuizzes.has(currentBatch)
+        ) {
           gateStatus = 'BATCH_QUIZ';
         }
       }
@@ -174,7 +250,15 @@ export async function ensureDailyTaskAndGetSummary(): Promise<DailyProgressSumma
 
   // Ambil daftar kata terbaru hari ini (atau hari terakhir di batch aktif)
   const latestBatchRows = await db.assignedWords.where('batchNumber').equals(currentBatch).toArray();
-  const maxDayInBatch = latestBatchRows.reduce((acc, r) => Math.max(acc, r.dayNumber), 1);
+  const distinctLatestDates = new Set(latestBatchRows.map((r) => r.assignedDate));
+  const maxDayInBatch = Math.min(
+    DAYS_PER_BATCH,
+    Math.max(
+      1,
+      distinctLatestDates.size,
+      latestBatchRows.reduce((acc, r) => Math.max(acc, r.dayNumber), 1)
+    )
+  );
 
   const todayRows = latestBatchRows.filter((r) => r.assignedDate === today);
   const displayRows =
@@ -195,13 +279,25 @@ export async function ensureDailyTaskAndGetSummary(): Promise<DailyProgressSumma
   hydratedBatch.sort((a, b) => a.word.order - b.word.order);
 
   const remedialCount = await db.assignedWords.where('masteryScore').equals(1).count();
+  const evaluatedToday = allHistory.some(
+    (h) => h.quizType === 'BATCH' && h.completedAt.slice(0, 10) === today
+  );
+  const isEvaluationDay =
+    maxDayInBatch >= DAYS_PER_BATCH || gateStatus !== 'OPEN' || evaluatedToday;
+
+  const effectiveBatchTarget = Math.max(batchTarget, latestBatchRows.length);
 
   return {
+    stage,
+    dailyQuota,
+    quizStreak,
+    streakTargetForNextStage,
     batchNumber: currentBatch,
     batchCount: latestBatchRows.length,
-    batchTarget: BATCH_SIZE,
+    batchTarget: effectiveBatchTarget,
     dayNumber: maxDayInBatch,
     daysPerBatch: DAYS_PER_BATCH,
+    isEvaluationDay,
     gateStatus,
     pendingCumulativeBatch,
     remedialCount,
@@ -300,7 +396,6 @@ export async function searchDictionary(query: string, limit = 40): Promise<WordR
     return db.words.orderBy('order').limit(limit).toArray();
   }
 
-  // Pencarian cepat di IndexedDB: prefix match pada searchTokens + filter substring akurat
   const prefixMatches = await db.words
     .where('searchTokens')
     .startsWith(q.split(/\s+/)[0])
